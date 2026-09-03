@@ -52,6 +52,7 @@
     "lint:fix": "pnpm lint --fix",
     "start": "run-p build:watch \"storybook --quiet\"",
     "storybook": "storybook dev -p 6006",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
@@ -67,6 +68,7 @@
     "eslint-plugin-prettier": "^5.5.4",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-storybook": "^10.6.0",
+    "jsdom": "^26.1.0",
     "npm-run-all2": "^8.0.4",
     "prettier": "^3.6.2",
     "react": "^18.2.0",
@@ -75,7 +77,8 @@
     "tsup": "^8.5.0",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.44.1",
-    "vite": "^7.0.5"
+    "vite": "^7.0.5",
+    "vitest": "^3.2.4"
   },
   "peerDependencies": {
     "storybook": "^9.0.0 || ^10.0.0"
