@@ -279,7 +279,7 @@ Selecting a brand updates Storybook's `brand` global, so Storybook carries it th
 
 ## Canvas and DOM behavior
 
-The toolbar and brand application operate only for individual Canvas stories. Docs mode is left untouched. The target is queried from the Canvas element's owner document, which keeps the manager document isolated from preview changes.
+The toolbar and brand application operate only for individual Canvas stories. The toolbar displays the effective brand beside its icon and opens the same dropdown for catalogs of any size. Docs mode is left untouched. The target is queried from the Canvas element's owner document, which keeps the manager document isolated from preview changes.
 
 On application, the addon sets configured attributes, adds configured class tokens, and writes configured custom properties as inline styles. Before doing so it snapshots the target's relevant attributes plus its complete `class` and `style` attributes. It restores those exact original values—including whether the attributes existed at all—before switching brands, when disabling the addon for a story, when leaving Canvas, and when the decorator unmounts. Unrelated attributes remain untouched.
 

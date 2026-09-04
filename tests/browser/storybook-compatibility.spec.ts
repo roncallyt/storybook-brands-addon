@@ -90,7 +90,11 @@ const waitForShowcase = async (page: Page) => {
   return frame;
 };
 
-const toolbar = (page: Page) => page.getByRole('combobox', { name: /^Brand/ });
+const toolbar = (page: Page) =>
+  page.getByRole('region', { name: 'Toolbar' }).getByRole('button', { name: /^Brand(?: |$)/ });
+const brandMenu = (page: Page) => page.getByRole('menu', { name: 'Brands' });
+const brandOption = (page: Page, title: 'Orbit' | 'Canopy' | 'Harbor') =>
+  brandMenu(page).getByRole('button', { name: title });
 
 const navigateInSidebar = async (page: Page, storyId: string) => {
   await page.locator(`[data-item-id="${storyId}"]`).click();
@@ -153,7 +157,8 @@ const expectBrand = async (page: Page, brand: keyof typeof brandStyles) => {
 };
 
 const selectBrand = async (page: Page, brand: 'Orbit' | 'Canopy' | 'Harbor') => {
-  await toolbar(page).selectOption({ label: brand });
+  await toolbar(page).click();
+  await brandOption(page, brand).click();
   await expect(toolbar(page)).toHaveAccessibleName(new RegExp(`${brand}$`));
 };
 
@@ -166,9 +171,20 @@ test(`packed addon integrates with Storybook ${process.env.STORYBOOK_VERSION ?? 
   await expect(toolbar(page)).toHaveAccessibleName('Brand Orbit');
   await expectBrand(page, 'orbit');
 
-  await expect(toolbar(page).locator('option').allTextContents()).resolves.toEqual(['Orbit', 'Canopy', 'Harbor']);
-
-  await selectBrand(page, 'Harbor');
+  await toolbar(page).focus();
+  await page.keyboard.press('Enter');
+  await expect(brandMenu(page)).toBeVisible();
+  const initialOptions = brandMenu(page).getByRole('button');
+  await expect(initialOptions).toHaveCount(3);
+  await expect(initialOptions).toHaveText(['Orbit', 'Canopy', 'Harbor']);
+  await expect(brandOption(page, 'Orbit')).toHaveAttribute('aria-pressed', 'true');
+  await expect(brandOption(page, 'Orbit')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(brandOption(page, 'Canopy')).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(brandOption(page, 'Harbor')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(toolbar(page)).toBeFocused();
   await expectBrand(page, 'harbor');
   await expectUrlBrand(page, 'harbor');
 
@@ -184,7 +200,14 @@ test(`packed addon integrates with Storybook ${process.env.STORYBOOK_VERSION ?? 
   await navigateInSidebar(page, storyIds.restricted);
   await expectBrand(page, 'orbit');
   await expect(toolbar(page)).toHaveAccessibleName('Brand fallback Orbit');
-  await expect(toolbar(page).locator('option').allTextContents()).resolves.toEqual(['Orbit']);
+  await expect(toolbar(page)).toHaveAttribute('aria-description', /Saved brand/);
+  await toolbar(page).click();
+  await expect(brandMenu(page)).toBeVisible();
+  const restrictedOptions = brandMenu(page).getByRole('button');
+  await expect(restrictedOptions).toHaveCount(1);
+  await expect(restrictedOptions).toHaveText(['Orbit']);
+  await page.keyboard.press('Escape');
+  await expect(brandMenu(page)).toHaveCount(0);
   await expectUrlBrand(page, 'canopy');
 
   await navigateInSidebar(page, storyIds.unrestricted);
@@ -194,6 +217,8 @@ test(`packed addon integrates with Storybook ${process.env.STORYBOOK_VERSION ?? 
   await navigateInSidebar(page, storyIds.disabled);
   await expect(toolbar(page)).toBeDisabled();
   await expect(toolbar(page)).toHaveAccessibleName('Brand switching disabled');
+  await toolbar(page).hover();
+  await expect(page.getByText('Brand switching is disabled for this story.')).toBeVisible();
   const disabledHtml = preview(page).locator('html');
   await expect(disabledHtml).toHaveAttribute('data-brand', 'fixture-baseline');
   await expect(disabledHtml).toHaveAttribute('data-fixture', 'preserved');
@@ -209,6 +234,10 @@ test(`packed addon integrates with Storybook ${process.env.STORYBOOK_VERSION ?? 
   await expectBrand(page, 'canopy');
   await expect(toolbar(page)).toBeDisabled();
   await expect(toolbar(page)).toHaveAccessibleName('Brand set by story Canopy');
+  await toolbar(page).hover();
+  await expect(page.getByText('Brand selection is set by this story and cannot be changed.')).toBeVisible();
+  await toolbar(page).click({ force: true });
+  await expect(brandMenu(page)).toHaveCount(0);
   await expectUrlBrand(page, 'orbit');
 
   await navigateInSidebar(page, storyIds.unrestricted);

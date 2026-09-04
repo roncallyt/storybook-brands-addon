@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { PaintBrushIcon } from '@storybook/icons';
+import { IconButton, TooltipLinkList, WithTooltip } from 'storybook/internal/components';
 import { addons, types, useChannel, useGlobals, useParameter } from 'storybook/manager-api';
 
 import { ADDON_ID, BRAND_GLOBAL, BRANDS_PARAMETER, REGISTER_EVENT, REQUEST_EVENT, TOOL_ID } from './constants';
@@ -24,56 +25,138 @@ interface BrandSelectProps {
   ariaDescription: string;
   ariaLabel: string;
   children: string;
-  defaultOptions?: string;
   disabled?: boolean;
   onSelect?: (value: string) => void;
   options: { value: string; title: string }[];
+  selectedId?: string;
   tooltip: string;
 }
 
-const BrandSelect = ({
+const moveMenuFocus = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+    return;
+  }
+
+  const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button')].filter((item) => !item.disabled);
+  if (items.length === 0) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  const currentIndex = items.findIndex((item) => item === event.currentTarget.ownerDocument.activeElement);
+  let nextIndex: number;
+
+  if (event.key === 'Home') {
+    nextIndex = 0;
+  } else if (event.key === 'End') {
+    nextIndex = items.length - 1;
+  } else if (event.key === 'ArrowUp') {
+    nextIndex = currentIndex <= 0 ? items.length - 1 : currentIndex - 1;
+  } else {
+    nextIndex = currentIndex === -1 || currentIndex === items.length - 1 ? 0 : currentIndex + 1;
+  }
+
+  items[nextIndex]?.focus();
+};
+
+export const BrandSelect = ({
   ariaDescription,
   ariaLabel,
   children,
-  defaultOptions,
   disabled = false,
   onSelect,
   options,
+  selectedId,
   tooltip,
 }: BrandSelectProps): React.JSX.Element => {
-  const selectedTitle = options.find(({ value }) => value === defaultOptions)?.title;
+  const [menuVisible, setMenuVisible] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const selectedTitle = options.find(({ value }) => value === selectedId)?.title;
+  const accessibleName = `${ariaLabel}${selectedTitle === undefined ? '' : ` ${selectedTitle}`}`;
+  const menuId = `${TOOL_ID}-menu`;
+
+  const trigger = (
+    <IconButton
+      active={!disabled && menuVisible}
+      aria-controls={disabled ? undefined : menuId}
+      aria-description={ariaDescription}
+      aria-expanded={disabled ? undefined : menuVisible}
+      aria-haspopup={disabled ? undefined : 'menu'}
+      aria-label={accessibleName}
+      disabled={disabled}
+      ref={triggerRef}
+      type="button"
+    >
+      <PaintBrushIcon aria-hidden="true" />
+      {children}
+    </IconButton>
+  );
+
+  if (disabled) {
+    return (
+      <WithTooltip key="status" placement="bottom" tooltip={tooltip} trigger="hover">
+        {trigger}
+      </WithTooltip>
+    );
+  }
 
   return (
-    <span style={{ alignItems: 'center', display: 'inline-flex', height: 28, position: 'relative' }} title={tooltip}>
-      <PaintBrushIcon aria-hidden="true" style={{ left: 7, pointerEvents: 'none', position: 'absolute', width: 14 }} />
-      <select
-        aria-description={ariaDescription}
-        aria-label={`${ariaLabel}${selectedTitle === undefined ? '' : ` ${selectedTitle}`}`}
-        disabled={disabled}
-        onChange={({ currentTarget }) => onSelect?.(currentTarget.value)}
-        style={{
-          appearance: 'none',
-          background: 'transparent',
-          border: 0,
-          borderRadius: 4,
-          color: 'inherit',
-          cursor: disabled ? 'default' : 'pointer',
-          font: 'inherit',
-          fontSize: 12,
-          fontWeight: 700,
-          height: 28,
-          padding: '0 8px 0 26px',
-        }}
-        value={defaultOptions ?? ''}
-      >
-        {defaultOptions === undefined && <option value="">{children}</option>}
-        {options.map(({ value, title }) => (
-          <option key={value} value={value}>
-            {title}
-          </option>
-        ))}
-      </select>
-    </span>
+    <WithTooltip
+      closeOnOutsideClick
+      interactive
+      key="menu"
+      onVisibleChange={setMenuVisible}
+      placement="bottom"
+      title={tooltip}
+      tooltip={({ onHide }) => (
+        <TooltipLinkList
+          aria-label="Brands"
+          id={menuId}
+          links={options.map(({ value, title }) => {
+            const active = value === selectedId;
+            const select = () => {
+              onSelect?.(value);
+              onHide();
+              triggerRef.current?.focus();
+              requestAnimationFrame(() => triggerRef.current?.focus());
+            };
+            return {
+              active,
+              'aria-pressed': active,
+              autoFocus: active,
+              id: value,
+              onClick: (event) => {
+                event.preventDefault();
+                select();
+              },
+              onKeyDown: (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  select();
+                }
+              },
+              title,
+            };
+          })}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              event.stopPropagation();
+              onHide();
+              triggerRef.current?.focus();
+              return;
+            }
+            moveMenuFocus(event);
+          }}
+          role="menu"
+        />
+      )}
+      trigger="click"
+    >
+      {trigger}
+    </WithTooltip>
   );
 };
 
@@ -135,19 +218,20 @@ export const BrandSelectorPresentation = ({
     <BrandSelect
       ariaDescription={tooltip}
       ariaLabel={state.locked ? 'Brand set by story' : state.mismatch === undefined ? 'Brand' : 'Brand fallback'}
-      defaultOptions={effectiveBrand.id}
       disabled={state.locked}
       key="enabled"
       onSelect={(selectedId) => {
         if (
           !state.locked &&
           typeof selectedId === 'string' &&
+          selectedId !== effectiveBrand.id &&
           state.allowedBrands.some(({ id }) => id === selectedId)
         ) {
           updateGlobals({ [BRAND_GLOBAL]: selectedId });
         }
       }}
       options={options}
+      selectedId={effectiveBrand.id}
       tooltip={tooltip}
     >
       {effectiveBrand.title}
