@@ -1,4 +1,5 @@
-import { ADDON_ID } from './constants';
+import { ADDON_ID, BRAND_GLOBAL } from './constants';
+import { resolveStoryBrandState } from './storyState';
 import type { BrandsConfig } from './types';
 
 export interface NormalizedBrand {
@@ -256,20 +257,8 @@ export const resolveBrand = (
   globalBrand: unknown,
   warn: (message: string) => void = console.warn,
 ): NormalizedBrand => {
-  if (globalBrand !== undefined) {
-    if (typeof globalBrand === 'string') {
-      const selected = config.brandsById.get(globalBrand);
-      if (selected !== undefined) {
-        return selected;
-      }
-      warn(`[${ADDON_ID}] globals.brand: unknown brand ID ${JSON.stringify(globalBrand)}; using fallback`);
-    } else {
-      warn(`[${ADDON_ID}] globals.brand: expected a string; using fallback`);
-    }
-  }
-
-  const fallback =
-    (config.defaultBrand === undefined ? undefined : config.brandsById.get(config.defaultBrand)) ?? config.brands[0];
+  const userGlobals = globalBrand === undefined ? {} : { [BRAND_GLOBAL]: globalBrand };
+  const fallback = resolveStoryBrandState(config, undefined, {}, userGlobals, warn).brand;
 
   // Validation guarantees a nonempty catalog and a valid default.
   return fallback as NormalizedBrand;

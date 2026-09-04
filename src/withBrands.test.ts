@@ -18,7 +18,7 @@ vi.mock('storybook/preview-api', () => ({
 
 import type { StoryContext } from 'storybook/internal/types';
 
-import { REGISTER_EVENT, REQUEST_EVENT } from './constants';
+import { BRAND_GLOBAL, BRANDS_PARAMETER, REGISTER_EVENT, REQUEST_EVENT } from './constants';
 import type { BrandsConfig } from './types';
 import { withBrands } from './withBrands';
 
@@ -43,12 +43,26 @@ const config = (): BrandsConfig => ({
   ],
 });
 
-const render = (decorator: ReturnType<typeof withBrands>, viewMode: 'story' | 'docs', globalBrand: unknown): unknown =>
+interface RenderOptions {
+  parameters?: unknown;
+  storyGlobals?: Record<string, unknown>;
+  userGlobals?: Record<string, unknown>;
+}
+
+const render = (
+  decorator: ReturnType<typeof withBrands>,
+  viewMode: 'story' | 'docs',
+  globalBrand: unknown,
+  options: RenderOptions = {},
+): unknown =>
   decorator(
     (() => 'story result') as never,
     {
       canvasElement: document.body,
       globals: { brand: globalBrand },
+      parameters: { [BRANDS_PARAMETER]: options.parameters },
+      storyGlobals: options.storyGlobals ?? {},
+      userGlobals: options.userGlobals ?? (globalBrand === undefined ? {} : { [BRAND_GLOBAL]: globalBrand }),
       viewMode,
     } as unknown as StoryContext,
   );
@@ -84,7 +98,14 @@ describe('withBrands', () => {
     const decorator = withBrands(config());
     decorator(
       (() => 'story result') as never,
-      { canvasElement: document.body, globals, viewMode: 'story' } as unknown as StoryContext,
+      {
+        canvasElement: document.body,
+        globals,
+        parameters: {},
+        storyGlobals: {},
+        userGlobals: globals,
+        viewMode: 'story',
+      } as unknown as StoryContext,
     );
 
     expect(globals.brand).toBe('saved-but-missing');
@@ -175,12 +196,82 @@ describe('withBrands', () => {
     });
   });
 
+  it('temporarily applies an allowed fallback without changing the saved user global', () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const userGlobals = { [BRAND_GLOBAL]: 'beta' };
+
+    render(withBrands(config()), 'story', 'beta', {
+      parameters: { allowed: ['alpha'] },
+      userGlobals,
+    });
+
+    expect(document.querySelector('#target')?.getAttribute('data-brand')).toBe('alpha');
+    expect(userGlobals[BRAND_GLOBAL]).toBe('beta');
+    expect(warning).not.toHaveBeenCalled();
+  });
+
+  it('uses a story default as a non-locking fallback after the user selection', () => {
+    const decorator = withBrands(config());
+
+    render(decorator, 'story', undefined, { parameters: { default: 'beta' } });
+    expect(document.querySelector('#target')?.getAttribute('data-brand')).toBe('beta');
+
+    render(decorator, 'story', 'alpha', {
+      parameters: { default: 'beta' },
+      userGlobals: { [BRAND_GLOBAL]: 'alpha' },
+    });
+    expect(document.querySelector('#target')?.getAttribute('data-brand')).toBe('alpha');
+  });
+
+  it('applies and warns about a forced story brand outside the allowed set', () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    render(withBrands(config()), 'story', 'beta', {
+      parameters: { allowed: ['alpha'] },
+      storyGlobals: { [BRAND_GLOBAL]: 'beta' },
+      userGlobals: { [BRAND_GLOBAL]: 'alpha' },
+    });
+
+    expect(document.querySelector('#target')?.getAttribute('data-brand')).toBe('beta');
+    expect(warning).toHaveBeenCalledOnce();
+    expect(warning.mock.calls[0]?.[0]).toMatch(/^\[storybook-brands-addon\] storyGlobals\.brand:/);
+  });
+
+  it('restores addon-owned DOM changes when the story disables brands', () => {
+    const decorator = withBrands(config());
+    const target = document.querySelector('#target') as HTMLElement;
+
+    render(decorator, 'story', 'alpha');
+    expect(target.className).toBe('original alpha');
+
+    render(decorator, 'story', 'alpha', { parameters: { disabled: true } });
+    expect(target.outerHTML).toBe('<main id="target" class="original"></main>');
+  });
+
+  it('warns non-fatally about invalid story metadata', () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    expect(() =>
+      render(withBrands(config()), 'story', undefined, {
+        parameters: { allowed: ['missing'], default: 'missing', disabled: 'yes' },
+      }),
+    ).not.toThrow();
+
+    expect(document.querySelector('#target')?.getAttribute('data-brand')).toBe('alpha');
+    expect(warning).toHaveBeenCalledTimes(4);
+    expect(warning.mock.calls.every(([message]) => /^\[storybook-brands-addon\]/.test(message as string))).toBe(true);
+  });
+
   it('leaves Docs untouched even when the target is invalid', () => {
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const source = config();
     source.target = '[';
 
-    expect(() => render(withBrands(source), 'docs', 'alpha')).not.toThrow();
+    expect(() =>
+      render(withBrands(source), 'docs', 'alpha', {
+        parameters: { allowed: ['missing'], default: 'missing' },
+      }),
+    ).not.toThrow();
     expect(warning).not.toHaveBeenCalled();
   });
 });

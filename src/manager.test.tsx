@@ -6,6 +6,7 @@ const managerApi = vi.hoisted(() => ({
   register: vi.fn((_id: string, register: () => void) => register()),
   useChannel: vi.fn(),
   useGlobals: vi.fn(),
+  useParameter: vi.fn(),
 }));
 
 vi.mock('@storybook/icons', () => ({ PaintBrushIcon: 'paint-brush-icon' }));
@@ -15,13 +16,15 @@ vi.mock('storybook/manager-api', () => ({
   types: { TOOL: 'tool' },
   useChannel: managerApi.useChannel,
   useGlobals: managerApi.useGlobals,
+  useParameter: managerApi.useParameter,
 }));
 
 import { BRAND_GLOBAL, TOOL_ID } from './constants';
-import { BrandSelectorPresentation, resolveRegisteredBrand } from './manager';
+import { BrandSelectorPresentation } from './manager';
 import type { BrandsRegistration } from './protocol';
 
 interface SelectProps {
+  ariaDescription: string;
   ariaLabel: string;
   children: unknown;
   defaultOptions?: string;
@@ -41,18 +44,28 @@ const registration: BrandsRegistration = {
   defaultBrand: 'project / default',
 };
 
-const renderPresentation = (
-  globals: Record<string, unknown> = {},
-  storyGlobals: Record<string, unknown> = {},
+interface RenderOptions {
+  catalog?: BrandsRegistration | null;
+  parameters?: unknown;
+  storyGlobals?: Record<string, unknown>;
+  updateGlobals?: (globals: Record<string, unknown>) => void;
+  userGlobals?: Record<string, unknown>;
+}
+
+const renderPresentation = ({
+  catalog = registration,
+  parameters,
+  storyGlobals = {},
   updateGlobals = vi.fn(),
-  catalog: BrandsRegistration | null = registration,
-): SelectProps =>
+  userGlobals = {},
+}: RenderOptions = {}): SelectProps =>
   (
     BrandSelectorPresentation({
-      globals,
+      parameters,
       registration: catalog ?? undefined,
       storyGlobals,
       updateGlobals,
+      userGlobals,
     }) as ReactElement<SelectProps>
   ).props;
 
@@ -76,18 +89,16 @@ describe('BrandSelectorPresentation', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('shows an actionable disabled selector before preview configuration arrives', () => {
-    const props = renderPresentation({}, {}, vi.fn(), null);
+    const props = renderPresentation({ catalog: null });
 
     expect(props.disabled).toBe(true);
     expect(props.options).toEqual([]);
     expect(props.tooltip).toContain('withBrands()');
-    expect(props.tooltip).toContain('.storybook/preview.ts');
+    expect(props.ariaDescription).toBe(props.tooltip);
   });
 
   it('preserves catalog order and exact IDs and titles', () => {
-    const props = renderPresentation();
-
-    expect(props.options).toEqual([
+    expect(renderPresentation().options).toEqual([
       { value: 'first.brand', title: 'First Brand' },
       { value: 'project / default', title: 'Project Default' },
       { value: '品牌-三', title: 'Selected Brand' },
@@ -95,39 +106,69 @@ describe('BrandSelectorPresentation', () => {
     ]);
   });
 
-  it('resolves the displayed title from the merged global, project default, then first brand', () => {
-    expect(renderPresentation({ [BRAND_GLOBAL]: '品牌-三' }).children).toBe('Selected Brand');
+  it('resolves user, story-default, project-default, and first-brand titles', () => {
+    expect(renderPresentation({ userGlobals: { [BRAND_GLOBAL]: '品牌-三' } }).children).toBe('Selected Brand');
+    expect(renderPresentation({ parameters: { default: 'first.brand' } }).children).toBe('First Brand');
     expect(renderPresentation().children).toBe('Project Default');
-
-    const withoutDefault = { ...registration, defaultBrand: undefined };
-    expect(renderPresentation({}, {}, vi.fn(), withoutDefault).children).toBe('First Brand');
+    expect(renderPresentation({ catalog: { ...registration, defaultBrand: undefined } }).children).toBe('First Brand');
   });
 
-  it('updates the persistent global only after an explicit valid selection', () => {
+  it('restricts options and updates only after an explicit currently allowed selection', () => {
     const updateGlobals = vi.fn();
-    const props = renderPresentation({}, {}, updateGlobals);
+    const props = renderPresentation({
+      parameters: { allowed: ['four', 'first.brand'] },
+      updateGlobals,
+    });
 
+    expect(props.options.map(({ value }) => value)).toEqual(['first.brand', 'four']);
     props.onSelect?.('four');
     expect(updateGlobals).toHaveBeenCalledWith({ [BRAND_GLOBAL]: 'four' });
 
     updateGlobals.mockClear();
+    props.onSelect?.('品牌-三');
     props.onSelect?.('missing');
     props.onSelect?.(42);
     expect(updateGlobals).not.toHaveBeenCalled();
   });
 
-  it('falls back for an unknown merged global without mutating it', () => {
+  it('shows a temporary fallback for a disallowed saved selection without mutating it', () => {
     const updateGlobals = vi.fn();
-    const props = renderPresentation({ [BRAND_GLOBAL]: 'saved-but-missing' }, {}, updateGlobals);
+    const userGlobals = { [BRAND_GLOBAL]: '品牌-三' };
+    const props = renderPresentation({
+      parameters: { allowed: ['first.brand', 'four'] },
+      updateGlobals,
+      userGlobals,
+    });
 
-    expect(props.children).toBe('Project Default');
-    expect(props.defaultOptions).toBe('project / default');
+    expect(props.children).toBe('First Brand');
+    expect(props.defaultOptions).toBe('first.brand');
+    expect(props.disabled).toBe(false);
+    expect(props.tooltip).toContain('Saved brand');
+    expect(props.tooltip).toContain('Selected Brand');
+    expect(props.ariaDescription).toBe(props.tooltip);
+    expect(userGlobals[BRAND_GLOBAL]).toBe('品牌-三');
     expect(updateGlobals).not.toHaveBeenCalled();
   });
 
-  it('displays and locks the effective story-global brand without overwriting the saved global', () => {
+  it('shows an inert disabled state and never updates globals', () => {
     const updateGlobals = vi.fn();
-    const props = renderPresentation({ [BRAND_GLOBAL]: '品牌-三' }, { [BRAND_GLOBAL]: '品牌-三' }, updateGlobals);
+    const props = renderPresentation({ parameters: { disabled: true }, updateGlobals });
+
+    expect(props.children).toBe('Brands disabled');
+    expect(props.disabled).toBe(true);
+    expect(props.defaultOptions).toBeUndefined();
+    expect(props.tooltip).toContain('disabled for this story');
+    expect(props.onSelect).toBeUndefined();
+    expect(updateGlobals).not.toHaveBeenCalled();
+  });
+
+  it('displays and locks a valid story-global brand', () => {
+    const updateGlobals = vi.fn();
+    const props = renderPresentation({
+      storyGlobals: { [BRAND_GLOBAL]: '品牌-三' },
+      updateGlobals,
+      userGlobals: { [BRAND_GLOBAL]: 'four' },
+    });
 
     expect(props.children).toBe('Selected Brand');
     expect(props.disabled).toBe(true);
@@ -136,16 +177,24 @@ describe('BrandSelectorPresentation', () => {
     expect(updateGlobals).not.toHaveBeenCalled();
   });
 
-  it('uses brand-key membership to identify a hard story override', () => {
-    expect(renderPresentation({}, { [BRAND_GLOBAL]: undefined }).disabled).toBe(true);
-    expect(renderPresentation({}, {}).disabled).toBe(false);
-  });
-});
+  it('shows a forced story brand even when it is outside the allowed options', () => {
+    const props = renderPresentation({
+      parameters: { allowed: ['first.brand'] },
+      storyGlobals: { [BRAND_GLOBAL]: 'four' },
+    });
 
-describe('resolveRegisteredBrand', () => {
-  it('does not alter the registration while resolving an unknown global', () => {
-    const before = JSON.stringify(registration);
-    expect(resolveRegisteredBrand(registration, 'unknown').id).toBe('project / default');
-    expect(JSON.stringify(registration)).toBe(before);
+    expect(props.children).toBe('Fourth Brand');
+    expect(props.defaultOptions).toBe('four');
+    expect(props.options).toEqual([{ value: 'first.brand', title: 'First Brand' }]);
+    expect(props.disabled).toBe(true);
+  });
+
+  it('uses brand-key membership to lock an invalid story override on its fallback', () => {
+    const props = renderPresentation({ storyGlobals: { [BRAND_GLOBAL]: undefined } });
+
+    expect(props.children).toBe('Project Default');
+    expect(props.disabled).toBe(true);
+    expect(props.tooltip).toContain('unavailable');
+    expect(renderPresentation().disabled).toBe(false);
   });
 });
