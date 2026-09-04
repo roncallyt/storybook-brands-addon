@@ -1,6 +1,6 @@
 {
   "name": "storybook-brands-addon",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Switch between consumer-defined brands in Storybook",
   "keywords": [
     "storybook-addon",
@@ -38,18 +38,23 @@
   },
   "files": [
     "dist/**/*",
+    "CHANGELOG.md",
     "README.md",
-    "*.js",
-    "*.d.ts"
+    "manager.js",
+    "preset.js",
+    "preview.js"
   ],
   "scripts": {
     "prebuild": "node -e \"fs.rmSync('./dist', { recursive: true, force: true })\"",
+    "prepack": "pnpm build",
     "build": "tsup",
     "build-storybook": "storybook build",
     "build:watch": "pnpm build --watch",
+    "changelog": "changelogen --noAuthors",
     "format": "prettier --write .",
     "lint": "eslint --cache .",
     "lint:fix": "pnpm lint --fix",
+    "release:prepare": "changelogen --release --noAuthors --no-github",
     "start": "run-p build:watch \"storybook --quiet\"",
     "storybook": "storybook dev -p 6006",
     "test": "vitest run",
@@ -67,6 +72,7 @@
     "@types/react": "^18.2.65",
     "@types/react-dom": "^18.2.21",
     "@vitejs/plugin-react": "^4.7.0",
+    "changelogen": "^0.6.2",
     "eslint": "^9.36.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",

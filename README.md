@@ -1,7 +1,5 @@
 # Storybook Brands Addon
 
-> Pre-release: the package is currently version `0.0.0` and is not ready for production use.
-
 Switch between consumer-defined brands from the Storybook toolbar. A brand can apply attributes, classes, and CSS custom properties to one preview element, with per-story restrictions and a selection that follows Storybook navigation and URLs.
 
 ## When to use this addon

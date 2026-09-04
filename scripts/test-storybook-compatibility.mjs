@@ -34,7 +34,6 @@ try {
   await mkdir(storybookDirectory, { recursive: true });
   await mkdir(sourceDirectory, { recursive: true });
 
-  run('pnpm', ['build']);
   run('pnpm', ['pack', '--pack-destination', fixtureRoot]);
 
   const tarballs = (await readdir(fixtureRoot)).filter((name) => name.endsWith('.tgz'));

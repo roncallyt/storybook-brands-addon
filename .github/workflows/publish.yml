@@ -1,0 +1,204 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing v* tag to publish or retry
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    outputs:
+      package-version: ${{ steps.release.outputs.package-version }}
+      release-tag: ${{ steps.release.outputs.release-tag }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+
+      - name: Validate tag and package version
+        id: release
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          if [[ "$RELEASE_TAG" != v* ]]; then
+            echo "::error::Release tag must start with v (received: $RELEASE_TAG)."
+            exit 1
+          fi
+
+          if [[ "$EVENT_NAME" == 'workflow_dispatch' && "$DISPATCH_REF" != "refs/tags/$RELEASE_TAG" ]]; then
+            echo "::error::Manual retries must run from refs/tags/$RELEASE_TAG as well as naming that tag in the input."
+            exit 1
+          fi
+
+          if ! git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            echo "::error::Tag $RELEASE_TAG does not exist. Manual runs may only target an existing tag."
+            exit 1
+          fi
+
+          package_version="$(node -p "require('./package.json').version")"
+          tag_version="${RELEASE_TAG#v}"
+          if [[ "$tag_version" != "$package_version" ]]; then
+            echo "::error::Tag $RELEASE_TAG does not match package version $package_version."
+            exit 1
+          fi
+
+          echo "package-version=$package_version" >> "$GITHUB_OUTPUT"
+          echo "release-tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+  quality:
+    name: Quality
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ format('refs/tags/{0}', needs.validate.outputs.release-tag) }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Use npm 11.5.1 or newer
+        run: npm install --global 'npm@^11.5.1'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Run unit tests
+        run: pnpm test
+
+      - name: Build addon
+        run: pnpm build
+
+      - name: Build local Storybook
+        run: pnpm build-storybook
+
+      - name: Check package contents
+        run: npm pack --dry-run
+
+  compatibility:
+    name: Storybook ${{ matrix.storybook-version }}
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        storybook-version:
+          - 9.1.20
+          - 10.6.0
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ format('refs/tags/{0}', needs.validate.outputs.release-tag) }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 20.19
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Test Storybook ${{ matrix.storybook-version }} integration
+        run: pnpm test:browser -- ${{ matrix.storybook-version }}
+
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: publish-compatibility-${{ matrix.storybook-version }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+
+  publish:
+    name: Publish to npm
+    needs:
+      - validate
+      - quality
+      - compatibility
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ format('refs/tags/{0}', needs.validate.outputs.release-tag) }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Use npm 11.5.1 or newer
+        run: npm install --global 'npm@^11.5.1'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Publish or validate bootstrap release
+        env:
+          PACKAGE_VERSION: ${{ needs.validate.outputs.package-version }}
+          RELEASE_TAG: ${{ needs.validate.outputs.release-tag }}
+        run: |
+          if [[ "$RELEASE_TAG" == 'v0.1.0' ]]; then
+            package_name="$(node -p "require('./package.json').name")"
+            published_version="$(npm view "$package_name@$PACKAGE_VERSION" version 2>/dev/null || true)"
+
+            if [[ "$published_version" != "$PACKAGE_VERSION" ]]; then
+              echo "::error::$package_name@$PACKAGE_VERSION is not available on npm. Complete the first manual publish from this exact release commit with 'npm publish --access public', then retry this workflow for the existing $RELEASE_TAG tag."
+              exit 1
+            fi
+
+            echo "$package_name@$PACKAGE_VERSION already exists on npm; bootstrap validation succeeded and publication is skipped."
+            exit 0
+          fi
+
+          npm publish --access public --provenance
