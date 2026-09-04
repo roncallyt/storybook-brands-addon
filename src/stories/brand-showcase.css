@@ -56,6 +56,7 @@
   overflow: hidden;
   background: var(--showcase-primary);
   box-shadow: 0.3rem 0.3rem 0 var(--showcase-accent);
+  transform: var(--brand-mark-transform, none);
 }
 
 .brand-showcase__mark span {
@@ -84,7 +85,7 @@
   background: color-mix(in srgb, var(--showcase-accent) 18%, var(--showcase-surface));
   font-size: 0.78rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--brand-label-tracking, 0.08em);
   text-transform: uppercase;
 }
 
@@ -107,8 +108,8 @@
   margin: 0;
   color: var(--showcase-text);
   font-size: clamp(2.8rem, 8vw, 6.75rem);
-  font-weight: 700;
-  letter-spacing: -0.055em;
+  font-weight: var(--brand-heading-weight, 700);
+  letter-spacing: var(--brand-heading-tracking, -0.055em);
   line-height: 0.94;
 }
 
@@ -157,30 +158,13 @@
   background: var(--showcase-primary);
   box-shadow: 0.25rem 0.25rem 0 var(--showcase-accent);
   font: 700 0.92rem/1 var(--showcase-font);
+  letter-spacing: var(--brand-action-tracking, normal);
   cursor: pointer;
 }
 
 .brand-showcase button:focus-visible {
   outline: 3px solid var(--showcase-accent);
   outline-offset: 3px;
-}
-
-.brand-orbit .brand-showcase__mark {
-  transform: rotate(-4deg);
-}
-
-.brand-orbit .brand-showcase__badge,
-.brand-orbit .brand-showcase button {
-  letter-spacing: 0.05em;
-}
-
-.brand-canopy .brand-showcase__mark {
-  transform: rotate(4deg);
-}
-
-.brand-canopy .brand-showcase h1 {
-  font-weight: 600;
-  letter-spacing: -0.04em;
 }
 
 @media (max-width: 42rem) {

@@ -7,7 +7,7 @@ import type { BrandsRegistration } from './protocol';
 import { resolveStoryBrandState } from './storyState';
 
 const MISSING_CONFIGURATION_TOOLTIP =
-  'Configure brands with withBrands() in .storybook/preview.ts to enable brand selection.';
+  'Configure brands with withBrandsByDataAttribute() or another brand decorator in .storybook/preview.ts to enable brand selection.';
 const STORY_OVERRIDE_TOOLTIP = 'Brand selection is set by this story and cannot be changed.';
 const DISABLED_TOOLTIP = 'Brand switching is disabled for this story.';
 const ignoreWarning = (): void => undefined;

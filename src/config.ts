@@ -18,11 +18,11 @@ export interface NormalizedBrandsConfig {
   readonly attributeNames: readonly string[];
 }
 
-const fail = (path: string, message: string): never => {
+export const fail = (path: string, message: string): never => {
   throw new TypeError(`[${ADDON_ID}] ${path}: ${message}`);
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const requireNonblankString = (value: unknown, path: string): string => {
@@ -66,6 +66,14 @@ const isValidAttributeName = (name: string): boolean => {
   return (
     codePoints.length > 0 && isXmlNameStart(codePoints[0] as number) && codePoints.slice(1).every(isXmlNameCharacter)
   );
+};
+
+export const requireAttributeName = (value: unknown, path: string): string => {
+  if (typeof value !== 'string' || !isValidAttributeName(value)) {
+    return fail(path, 'invalid attribute name');
+  }
+
+  return value;
 };
 
 const isCssNameCodePoint = (character: string): boolean => {
@@ -141,9 +149,7 @@ const normalizeAttributes = (value: unknown, path: string): Record<string, strin
   const normalized = Object.create(null) as Record<string, string>;
   for (const [name, attributeValue] of Object.entries(value)) {
     const propertyPath = `${path}.${name || '<empty>'}`;
-    if (!isValidAttributeName(name)) {
-      fail(propertyPath, 'invalid attribute name');
-    }
+    requireAttributeName(name, propertyPath);
     if (name.toLowerCase() === 'class' || name.toLowerCase() === 'style') {
       fail(propertyPath, 'use classes or cssVariables instead');
     }

@@ -1,0 +1,33 @@
+:root[data-brand='orbit'] {
+  --brand-primary: #4338ca;
+  --brand-accent: #22d3ee;
+  --brand-background: #eef2ff;
+  --brand-surface: #ffffff;
+  --brand-text: #172554;
+  --brand-border: 2px solid #312e81;
+  --brand-radius: 7px;
+  --brand-font: 'Arial Narrow', 'Avenir Next Condensed', Arial, sans-serif;
+  --brand-shadow: 9px 9px 0 #22d3ee;
+  --brand-mark-transform: rotate(-4deg);
+  --brand-label-tracking: 0.05em;
+  --brand-action-tracking: 0.05em;
+  --brand-heading-weight: 700;
+  --brand-heading-tracking: -0.055em;
+}
+
+:root[data-brand='canopy'] {
+  --brand-primary: #285943;
+  --brand-accent: #d5a936;
+  --brand-background: #f3efe2;
+  --brand-surface: #fffdf6;
+  --brand-text: #263a2e;
+  --brand-border: 1px solid #9a8965;
+  --brand-radius: 28px;
+  --brand-font: Georgia, 'Times New Roman', serif;
+  --brand-shadow: 0 22px 55px rgb(45 67 52 / 22%);
+  --brand-mark-transform: rotate(4deg);
+  --brand-label-tracking: 0.08em;
+  --brand-action-tracking: normal;
+  --brand-heading-weight: 600;
+  --brand-heading-tracking: -0.04em;
+}

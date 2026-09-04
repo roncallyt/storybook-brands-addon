@@ -34,40 +34,36 @@ The addon preview behavior is renderer-independent; the framework import above i
 
 ## Configure brands
 
-Add the `withBrands` decorator in `.storybook/preview.ts`:
+Data attributes are the recommended setup. Define brand tokens in one global stylesheet, import it once from `.storybook/preview.ts`, and let components consume semantic variables.
+
+```css
+/* .storybook/brand-tokens.css */
+:root[data-brand='alpha'] {
+  --brand-primary: #6633cc;
+  --brand-surface: #ffffff;
+  --button-radius: 4px;
+}
+
+:root[data-brand='beta'] {
+  --brand-primary: #087f5b;
+  --brand-surface: #f3fff9;
+  --button-radius: 999px;
+}
+```
 
 ```ts
+// .storybook/preview.ts
 import type { Preview } from '@storybook/react-vite';
-import { withBrands } from 'storybook-brands-addon';
+import { withBrandsByDataAttribute } from 'storybook-brands-addon';
+
+import './brand-tokens.css';
 
 const preview: Preview = {
   decorators: [
-    withBrands({
-      defaultBrand: 'alpha',
-      target: 'html',
+    withBrandsByDataAttribute({
       brands: [
-        {
-          id: 'alpha',
-          title: 'Alpha',
-          attributes: { 'data-brand': 'alpha' },
-          classes: ['brand-alpha'],
-          cssVariables: {
-            '--brand-primary': '#6633cc',
-            '--brand-surface': '#ffffff',
-            '--button-radius': '4px',
-          },
-        },
-        {
-          id: 'beta',
-          title: 'Beta',
-          attributes: { 'data-brand': 'beta' },
-          classes: ['brand-beta'],
-          cssVariables: {
-            '--brand-primary': '#087f5b',
-            '--brand-surface': '#f3fff9',
-            '--button-radius': '999px',
-          },
-        },
+        { id: 'alpha', title: 'Alpha' },
+        { id: 'beta', title: 'Beta' },
       ],
     }),
   ],
@@ -76,7 +72,7 @@ const preview: Preview = {
 export default preview;
 ```
 
-The addon applies those values; it does not inject a consumer stylesheet. Define how your components use them in project CSS:
+By default the helper writes the selected ID to `data-brand` on `<html>`. Components only need their normal structural CSS:
 
 ```css
 .product-card {
@@ -84,21 +80,60 @@ The addon applies those values; it does not inject a consumer stylesheet. Define
   background: var(--brand-surface, #ffffff);
   border-radius: var(--button-radius, 0.5rem);
 }
-
-[data-brand='beta'] .product-card {
-  border-color: var(--brand-primary);
-}
-
-.brand-alpha .product-card__title {
-  letter-spacing: -0.02em;
-}
 ```
 
 Fallback values are recommended so components still look intentional in stories where brand application is disabled.
 
+### Class-based activation
+
+Use `withBrandsByClassName` when an existing theme stylesheet is selected by classes:
+
+```ts
+import { withBrandsByClassName } from 'storybook-brands-addon';
+
+export default {
+  decorators: [
+    withBrandsByClassName({
+      brands: [
+        { id: 'alpha', title: 'Alpha', className: 'theme-alpha compact' },
+        { id: 'beta', title: 'Beta', className: 'theme-beta rounded' },
+      ],
+    }),
+  ],
+};
+```
+
+Each `className` may contain one or more whitespace-separated class tokens. They are added to `<html>` by default.
+
+### Combined attributes, classes, and inline variables
+
+The original `withBrands` API remains available for catalogs that need to combine activation strategies or calculate CSS variables in TypeScript:
+
+```ts
+import { withBrands } from 'storybook-brands-addon';
+
+export default {
+  decorators: [
+    withBrands({
+      brands: [
+        {
+          id: 'alpha',
+          title: 'Alpha',
+          attributes: { 'data-brand': 'alpha' },
+          classes: ['theme-alpha'],
+          cssVariables: { '--brand-primary': '#6633cc' },
+        },
+      ],
+    }),
+  ],
+};
+```
+
+The addon applies the configured activation values; it does not inject a consumer stylesheet.
+
 ## Public API
 
-Alongside the default Storybook addon entry consumed by `addons`, the package root exposes the decorator, two constants, and three TypeScript interfaces for direct configuration:
+Alongside the default Storybook addon entry consumed by `addons`, the package root exposes three decorators, two constants, and their TypeScript configuration interfaces:
 
 ```ts
 interface Brand {
@@ -115,6 +150,31 @@ interface BrandsConfig {
   target?: string;
 }
 
+interface DataAttributeBrand {
+  id: string;
+  title: string;
+  value?: string;
+}
+
+interface DataAttributeBrandsConfig {
+  brands: DataAttributeBrand[];
+  defaultBrand?: string;
+  target?: string;
+  attributeName?: string;
+}
+
+interface ClassNameBrand {
+  id: string;
+  title: string;
+  className: string;
+}
+
+interface ClassNameBrandsConfig {
+  brands: ClassNameBrand[];
+  defaultBrand?: string;
+  target?: string;
+}
+
 interface BrandsParameters {
   allowed?: string[];
   default?: string;
@@ -122,30 +182,36 @@ interface BrandsParameters {
 }
 ```
 
+- `withBrandsByDataAttribute(config: DataAttributeBrandsConfig)` activates a brand through one attribute.
+- `withBrandsByClassName(config: ClassNameBrandsConfig)` activates a brand through one or more class tokens.
 - `withBrands(config: BrandsConfig)` returns the Storybook decorator that registers the catalog and applies the effective brand.
 - `BRAND_GLOBAL` is the string `"brand"`, the Storybook global used for selection.
 - `BRANDS_PARAMETER` is the string `"brands"`, the key used for per-story parameters.
-- `Brand`, `BrandsConfig`, and `BrandsParameters` are type-only exports.
+- All interfaces shown above are type-only exports.
 
 ### Configuration fields
 
-`brands` is required and must be a nonempty array. Every brand requires:
+Every decorator requires a nonempty `brands` array. Every brand requires:
 
 - `id`: a unique, nonblank string. IDs are preserved exactly and are not trimmed or slugified.
 - `title`: a nonblank label shown in the toolbar.
 
-Every brand may also define:
+The data-attribute helper accepts an optional `value` per brand, defaulting to its exact `id`. Its config accepts `attributeName`, defaulting to `data-brand`. Attribute names must be valid and cannot be `class` or `style`.
+
+The class-name helper requires `className` on every brand. It accepts one or more tokens separated by ASCII whitespace.
+
+The advanced `withBrands` API also accepts:
 
 - `attributes`: attribute names and string values to set on the target. Attribute names must be valid, and `class` and `style` must use their dedicated fields instead.
 - `classes`: individual, nonempty, whitespace-free class tokens to add.
 - `cssVariables`: valid CSS custom-property names beginning with `--`, with string values.
 
-`BrandsConfig` also accepts:
+Every config also accepts:
 
 - `defaultBrand`: the ID to use when there is no usable user or story selection. It must identify a configured brand.
 - `target`: a CSS selector for the element that receives the brand. It defaults to `html` and is resolved in the Canvas preview document.
 
-Calling `withBrands` validates and snapshots the complete project configuration synchronously. Invalid project configuration throws a `TypeError` immediately, including the failing field path. Later mutations to the object passed to `withBrands` do not change the registered catalog.
+Calling any decorator validates and snapshots the complete project configuration synchronously. Invalid project configuration throws a `TypeError` immediately, including the failing field path. Later mutations to the supplied object do not change the registered catalog.
 
 ## Per-story controls
 

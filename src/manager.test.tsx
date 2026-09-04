@@ -92,7 +92,7 @@ describe('BrandSelectorPresentation', () => {
 
     expect(props.disabled).toBe(true);
     expect(props.options).toEqual([]);
-    expect(props.tooltip).toContain('withBrands()');
+    expect(props.tooltip).toContain('withBrandsByDataAttribute()');
     expect(props.ariaDescription).toBe(props.tooltip);
   });
 
