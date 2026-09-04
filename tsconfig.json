@@ -19,5 +19,5 @@
     "baseUrl": ".",
     "rootDir": "."
   },
-  "include": ["src/**/*", "tsup.config.ts"]
+  "include": ["src/**/*", "tests/**/*", "playwright.config.ts", "tsup.config.ts"]
 }

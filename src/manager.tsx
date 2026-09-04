@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { PaintBrushIcon } from '@storybook/icons';
-import { Select } from 'storybook/internal/components';
 import { addons, types, useChannel, useGlobals, useParameter } from 'storybook/manager-api';
 
 import { ADDON_ID, BRAND_GLOBAL, BRANDS_PARAMETER, REGISTER_EVENT, REQUEST_EVENT, TOOL_ID } from './constants';
@@ -21,6 +20,63 @@ interface BrandSelectorPresentationProps {
   updateGlobals: (globals: Record<string, unknown>) => void;
 }
 
+interface BrandSelectProps {
+  ariaDescription: string;
+  ariaLabel: string;
+  children: string;
+  defaultOptions?: string;
+  disabled?: boolean;
+  onSelect?: (value: string) => void;
+  options: { value: string; title: string }[];
+  tooltip: string;
+}
+
+const BrandSelect = ({
+  ariaDescription,
+  ariaLabel,
+  children,
+  defaultOptions,
+  disabled = false,
+  onSelect,
+  options,
+  tooltip,
+}: BrandSelectProps): React.JSX.Element => {
+  const selectedTitle = options.find(({ value }) => value === defaultOptions)?.title;
+
+  return (
+    <span style={{ alignItems: 'center', display: 'inline-flex', height: 28, position: 'relative' }} title={tooltip}>
+      <PaintBrushIcon aria-hidden="true" style={{ left: 7, pointerEvents: 'none', position: 'absolute', width: 14 }} />
+      <select
+        aria-description={ariaDescription}
+        aria-label={`${ariaLabel}${selectedTitle === undefined ? '' : ` ${selectedTitle}`}`}
+        disabled={disabled}
+        onChange={({ currentTarget }) => onSelect?.(currentTarget.value)}
+        style={{
+          appearance: 'none',
+          background: 'transparent',
+          border: 0,
+          borderRadius: 4,
+          color: 'inherit',
+          cursor: disabled ? 'default' : 'pointer',
+          font: 'inherit',
+          fontSize: 12,
+          fontWeight: 700,
+          height: 28,
+          padding: '0 8px 0 26px',
+        }}
+        value={defaultOptions ?? ''}
+      >
+        {defaultOptions === undefined && <option value="">{children}</option>}
+        {options.map(({ value, title }) => (
+          <option key={value} value={value}>
+            {title}
+          </option>
+        ))}
+      </select>
+    </span>
+  );
+};
+
 export const BrandSelectorPresentation = ({
   registration,
   parameters,
@@ -30,16 +86,15 @@ export const BrandSelectorPresentation = ({
 }: BrandSelectorPresentationProps): React.JSX.Element => {
   if (registration === undefined) {
     return (
-      <Select
+      <BrandSelect
         ariaDescription={MISSING_CONFIGURATION_TOOLTIP}
         ariaLabel="Brand"
         disabled
-        icon={<PaintBrushIcon />}
         options={[]}
         tooltip={MISSING_CONFIGURATION_TOOLTIP}
       >
         Brand
-      </Select>
+      </BrandSelect>
     );
   }
 
@@ -48,16 +103,16 @@ export const BrandSelectorPresentation = ({
 
   if (state.disabled) {
     return (
-      <Select
+      <BrandSelect
         ariaDescription={DISABLED_TOOLTIP}
         ariaLabel="Brand switching disabled"
         disabled
-        icon={<PaintBrushIcon />}
+        key="disabled"
         options={options}
         tooltip={DISABLED_TOOLTIP}
       >
         Brands disabled
-      </Select>
+      </BrandSelect>
     );
   }
 
@@ -77,12 +132,12 @@ export const BrandSelectorPresentation = ({
       : `Saved brand ${mismatchLabel} is not available for this story; using ${effectiveBrand.title}.`;
 
   return (
-    <Select
+    <BrandSelect
       ariaDescription={tooltip}
       ariaLabel={state.locked ? 'Brand set by story' : state.mismatch === undefined ? 'Brand' : 'Brand fallback'}
       defaultOptions={effectiveBrand.id}
       disabled={state.locked}
-      icon={<PaintBrushIcon />}
+      key="enabled"
       onSelect={(selectedId) => {
         if (
           !state.locked &&
@@ -96,7 +151,7 @@ export const BrandSelectorPresentation = ({
       tooltip={tooltip}
     >
       {effectiveBrand.title}
-    </Select>
+    </BrandSelect>
   );
 };
 

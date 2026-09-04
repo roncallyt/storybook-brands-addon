@@ -250,4 +250,4 @@ The catalog is resolved when the Storybook preview bundle loads. Runtime fetchin
 
 ## Compatibility
 
-The package requires Node.js 20.19 or newer and declares Storybook `^9.0.0 || ^10.0.0` as a peer dependency. It is ESM-only.
+The package requires Node.js 20.19 or newer and declares Storybook `^9.0.0 || ^10.0.0` as a peer dependency. Browser integration is tested against Storybook 9.1.20 and 10.6.0. It is ESM-only.

@@ -53,10 +53,13 @@
     "start": "run-p build:watch \"storybook --quiet\"",
     "storybook": "storybook dev -p 6006",
     "test": "vitest run",
+    "test:browser": "node scripts/test-storybook-compatibility.mjs",
+    "test:browser:playwright": "playwright test",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
+    "@playwright/test": "^1.62.1",
     "@storybook/addon-docs": "^10.6.0",
     "@storybook/icons": "^2.1.0",
     "@storybook/react-vite": "^10.6.0",

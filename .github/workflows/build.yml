@@ -59,3 +59,44 @@ jobs:
 
       - name: Build Storybook
         run: pnpm build-storybook
+
+  compatibility:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, 'ci skip') && !contains(github.event.head_commit.message, 'skip ci')"
+    strategy:
+      fail-fast: false
+      matrix:
+        storybook-version: [9.1.20, 10.6.0]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 20.19
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Test Storybook ${{ matrix.storybook-version }} integration
+        run: pnpm test:browser -- ${{ matrix.storybook-version }}
+
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-${{ matrix.storybook-version }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore

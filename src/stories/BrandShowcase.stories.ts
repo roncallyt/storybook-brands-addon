@@ -5,6 +5,7 @@ import { BrandShowcase } from './BrandShowcase';
 const meta = {
   title: 'Brands/Showcase',
   component: BrandShowcase,
+  tags: ['autodocs'],
   parameters: {
     layout: 'fullscreen',
   },

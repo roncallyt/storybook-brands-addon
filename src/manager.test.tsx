@@ -10,7 +10,6 @@ const managerApi = vi.hoisted(() => ({
 }));
 
 vi.mock('@storybook/icons', () => ({ PaintBrushIcon: 'paint-brush-icon' }));
-vi.mock('storybook/internal/components', () => ({ Select: 'storybook-select' }));
 vi.mock('storybook/manager-api', () => ({
   addons: { add: managerApi.add, register: managerApi.register },
   types: { TOOL: 'tool' },
