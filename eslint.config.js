@@ -15,6 +15,8 @@ export default [
       'coverage/',
       'node_modules/',
       'storybook-static/',
+      'playwright-report/',
+      'test-results/',
       'build-storybook.log',
       '.DS_Store',
       '.env',

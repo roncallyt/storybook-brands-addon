@@ -131,6 +131,20 @@ export default {
 
 The addon applies the configured activation values; it does not inject a consumer stylesheet.
 
+### Choosing an activation strategy
+
+- Prefer `withBrandsByDataAttribute` for a design system whose semantic tokens live in a global stylesheet.
+- Use `withBrandsByClassName` when an existing theme stylesheet is already activated by one or more classes.
+- Use `withBrands` when a brand must combine attributes, classes, and inline variables, or when variables are generated from synchronous project data.
+
+Provider components and provider callbacks are intentionally unsupported. They are renderer-specific, while this addon's preview behavior remains renderer-independent. Use a framework decorator or a provider-capable theming addon when a React, Vue, or other renderer context must change with the selected theme.
+
+## Migrating from v0.1
+
+Existing `withBrands()` configurations require no code changes in v0.2. The original types, global key, per-story controls, selection precedence, and DOM activation behavior remain supported; the data-attribute and class-name helpers are optional conveniences.
+
+V0.2 also applies the selected project brand to Autodocs and attached MDX pages. To retain v0.1's unbranded Docs behavior for a component, set `parameters.brands.docs.disabled` to `true` on its component metadata. Standalone MDX remains unbranded automatically.
+
 ## Public API
 
 Alongside the default Storybook addon entry consumed by `addons`, the package root exposes three decorators, two constants, and their TypeScript configuration interfaces:
