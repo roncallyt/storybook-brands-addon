@@ -41,4 +41,11 @@ export interface BrandsParameters {
   allowed?: string[];
   default?: string;
   disabled?: boolean;
+  docs?: BrandsDocsParameters;
+}
+
+export interface BrandsDocsParameters {
+  allowed?: string[];
+  default?: string;
+  disabled?: boolean;
 }

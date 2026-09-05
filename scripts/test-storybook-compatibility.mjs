@@ -66,7 +66,7 @@ try {
     `import type { StorybookConfig } from '@storybook/react-vite';
 
 const config: StorybookConfig = {
-  stories: ['../src/**/*.stories.@(js|jsx|ts|tsx)'],
+  stories: ['../src/**/*.mdx', '../src/**/*.stories.@(js|jsx|ts|tsx)'],
   addons: ['@storybook/addon-docs', 'storybook-brands-addon'],
   framework: '@storybook/react-vite',
 };
@@ -157,6 +157,80 @@ export default preview;
 `,
   );
 
+  await write(
+    join(sourceDirectory, 'BrandShowcase.mdx'),
+    `import { Meta, Story } from '@storybook/addon-docs/blocks';
+import * as BrandShowcaseStories from './BrandShowcase.stories';
+import * as OtherShowcaseStories from './OtherShowcase.stories';
+
+<Meta of={BrandShowcaseStories} name="Brand Guide" />
+
+# Attached brand guide
+
+<Story of={BrandShowcaseStories.Restricted} />
+<Story of={BrandShowcaseStories.Disabled} />
+<Story of={BrandShowcaseStories.ForcedBrand} />
+<Story of={OtherShowcaseStories.Default} />
+`,
+  );
+
+  await write(
+    join(sourceDirectory, 'OtherShowcase.stories.ts'),
+    `import type { Meta, StoryObj } from '@storybook/react-vite';
+import { BrandShowcase } from './BrandShowcase';
+
+const meta = {
+  title: 'Brands/Other Showcase',
+  component: BrandShowcase,
+  tags: ['autodocs'],
+  parameters: {
+    brands: { docs: { allowed: ['harbor'], default: 'harbor' } },
+    layout: 'fullscreen',
+  },
+} satisfies Meta<typeof BrandShowcase>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const Default: Story = {};
+`,
+  );
+
+  await write(
+    join(sourceDirectory, 'DisabledDocs.stories.ts'),
+    `import type { Meta, StoryObj } from '@storybook/react-vite';
+import { BrandShowcase } from './BrandShowcase';
+
+const meta = {
+  title: 'Brands/Disabled Docs',
+  component: BrandShowcase,
+  tags: ['autodocs'],
+  parameters: {
+    brands: { docs: { disabled: true } },
+    layout: 'fullscreen',
+  },
+} satisfies Meta<typeof BrandShowcase>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const Default: Story = {};
+`,
+  );
+
+  await write(
+    join(sourceDirectory, 'StandaloneGuide.mdx'),
+    `import { Meta, Story } from '@storybook/addon-docs/blocks';
+import * as BrandShowcaseStories from './BrandShowcase.stories';
+
+<Meta title="Guides/Standalone" />
+
+# Standalone guide
+
+<Story of={BrandShowcaseStories.Unrestricted} />
+`,
+  );
+
   const tarballPath = join(fixtureRoot, tarballs[0]);
   run(
     'npm',
@@ -179,11 +253,17 @@ export default preview;
   const index = JSON.parse(await readFile(join(staticDirectory, 'index.json'), 'utf8'));
   const expectedEntries = [
     'brands-showcase--docs',
+    'brands-showcase--brand-guide',
     'brands-showcase--unrestricted',
     'brands-showcase--story-default',
     'brands-showcase--restricted',
     'brands-showcase--disabled',
     'brands-showcase--forced-brand',
+    'brands-other-showcase--docs',
+    'brands-other-showcase--default',
+    'brands-disabled-docs--docs',
+    'brands-disabled-docs--default',
+    'guides-standalone--docs',
   ];
   const missingEntries = expectedEntries.filter((id) => index.entries?.[id] === undefined);
   if (missingEntries.length > 0) {

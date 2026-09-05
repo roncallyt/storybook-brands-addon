@@ -7,6 +7,7 @@ export { withBrandsByClassName, withBrandsByDataAttribute } from './simpleActiva
 export type {
   Brand,
   BrandsConfig,
+  BrandsDocsParameters,
   BrandsParameters,
   ClassNameBrand,
   ClassNameBrandsConfig,

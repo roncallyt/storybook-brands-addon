@@ -45,13 +45,14 @@ const normalizeBrandsParameters = <TBrand extends BrandReference>(
   catalog: BrandCatalog<TBrand>,
   value: unknown,
   warn: Warn,
+  path = 'parameters.brands',
 ): NormalizedBrandsParameters<TBrand> => {
   let parameters: Record<string, unknown> = {};
   if (value !== undefined) {
     if (isRecord(value)) {
       parameters = value;
     } else {
-      report(warn, 'parameters.brands', 'expected an object; ignoring');
+      report(warn, path, 'expected an object; ignoring');
     }
   }
 
@@ -60,25 +61,25 @@ const normalizeBrandsParameters = <TBrand extends BrandReference>(
 
   if (parameters.allowed !== undefined) {
     if (!Array.isArray(parameters.allowed)) {
-      report(warn, 'parameters.brands.allowed', 'expected an array; ignoring restriction');
+      report(warn, `${path}.allowed`, 'expected an array; ignoring restriction');
     } else {
       const allowedIds = new Set<string>();
 
       parameters.allowed.forEach((id, index) => {
-        const path = `parameters.brands.allowed[${index}]`;
+        const entryPath = `${path}.allowed[${index}]`;
         if (typeof id !== 'string' || id.trim().length === 0) {
-          report(warn, path, 'expected a nonblank string; ignoring entry');
+          report(warn, entryPath, 'expected a nonblank string; ignoring entry');
         } else if (allowedIds.has(id)) {
-          report(warn, path, `duplicate brand ID ${JSON.stringify(id)}; ignoring entry`);
+          report(warn, entryPath, `duplicate brand ID ${JSON.stringify(id)}; ignoring entry`);
         } else if (!brandsById.has(id)) {
-          report(warn, path, `unknown brand ID ${JSON.stringify(id)}; ignoring entry`);
+          report(warn, entryPath, `unknown brand ID ${JSON.stringify(id)}; ignoring entry`);
         } else {
           allowedIds.add(id);
         }
       });
 
       if (allowedIds.size === 0) {
-        report(warn, 'parameters.brands.allowed', 'does not include any configured brands; ignoring restriction');
+        report(warn, `${path}.allowed`, 'does not include any configured brands; ignoring restriction');
       } else {
         allowedBrands = catalog.brands.filter(({ id }) => allowedIds.has(id));
       }
@@ -90,16 +91,16 @@ const normalizeBrandsParameters = <TBrand extends BrandReference>(
 
   if (parameters.default !== undefined) {
     if (typeof parameters.default !== 'string' || parameters.default.trim().length === 0) {
-      report(warn, 'parameters.brands.default', 'expected a nonblank string; ignoring');
+      report(warn, `${path}.default`, 'expected a nonblank string; ignoring');
     } else {
       const configuredDefault = brandsById.get(parameters.default);
       if (configuredDefault === undefined) {
-        report(warn, 'parameters.brands.default', `unknown brand ID ${JSON.stringify(parameters.default)}; ignoring`);
+        report(warn, `${path}.default`, `unknown brand ID ${JSON.stringify(parameters.default)}; ignoring`);
       } else if (!allowedIds.has(configuredDefault.id)) {
         report(
           warn,
-          'parameters.brands.default',
-          `brand ID ${JSON.stringify(parameters.default)} is excluded by parameters.brands.allowed; ignoring`,
+          `${path}.default`,
+          `brand ID ${JSON.stringify(parameters.default)} is excluded by ${path}.allowed; ignoring`,
         );
       } else {
         defaultBrand = configuredDefault;
@@ -112,11 +113,22 @@ const normalizeBrandsParameters = <TBrand extends BrandReference>(
     if (typeof parameters.disabled === 'boolean') {
       disabled = parameters.disabled;
     } else {
-      report(warn, 'parameters.brands.disabled', 'expected a boolean; ignoring');
+      report(warn, `${path}.disabled`, 'expected a boolean; ignoring');
     }
   }
 
   return { allowedBrands, allowedIds, defaultBrand, disabled };
+};
+
+const getDocsParameters = (value: unknown, warn: Warn): unknown => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    report(warn, 'parameters.brands', 'expected an object; ignoring');
+    return undefined;
+  }
+  return value.docs;
 };
 
 const resolveGlobal = <TBrand extends BrandReference>(
@@ -214,6 +226,61 @@ export const resolveStoryBrandState = <TBrand extends BrandReference>(
     brand,
     disabled: false,
     locked,
+    mismatch,
+  };
+};
+
+export const resolveDocsBrandState = <TBrand extends BrandReference>(
+  catalog: BrandCatalog<TBrand>,
+  parametersValue: unknown,
+  userGlobals: Globals,
+  warn: Warn = console.warn,
+): StoryBrandState<TBrand> => {
+  const parameters = normalizeBrandsParameters(
+    catalog,
+    getDocsParameters(parametersValue, warn),
+    warn,
+    'parameters.brands.docs',
+  );
+  const brandsById = new Map(catalog.brands.map((brand) => [brand.id, brand]));
+
+  if (parameters.disabled) {
+    return {
+      allowedBrands: parameters.allowedBrands,
+      brand: undefined,
+      disabled: true,
+      locked: false,
+      mismatch: undefined,
+    };
+  }
+
+  let mismatch: BrandSelectionMismatch | undefined;
+  const userValue = userGlobals[BRAND_GLOBAL];
+  if (userValue !== undefined) {
+    const userSelection = resolveGlobal(brandsById, userValue, 'user', warn);
+    if (userSelection.brand !== undefined && parameters.allowedIds.has(userSelection.brand.id)) {
+      return {
+        allowedBrands: parameters.allowedBrands,
+        brand: userSelection.brand,
+        disabled: false,
+        locked: false,
+        mismatch: undefined,
+      };
+    }
+    mismatch = userSelection.mismatch ?? { source: 'user', value: userValue, reason: 'disallowed' };
+  }
+
+  const projectDefault = catalog.defaultBrand === undefined ? undefined : brandsById.get(catalog.defaultBrand);
+  const brand =
+    parameters.defaultBrand ??
+    (projectDefault !== undefined && parameters.allowedIds.has(projectDefault.id) ? projectDefault : undefined) ??
+    parameters.allowedBrands[0];
+
+  return {
+    allowedBrands: parameters.allowedBrands,
+    brand,
+    disabled: false,
+    locked: false,
     mismatch,
   };
 };

@@ -1,12 +1,16 @@
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
 
 const storyIds = {
+  attachedDocs: 'brands-showcase--brand-guide',
+  disabledDocs: 'brands-disabled-docs--docs',
   docs: 'brands-showcase--docs',
   unrestricted: 'brands-showcase--unrestricted',
   storyDefault: 'brands-showcase--story-default',
   restricted: 'brands-showcase--restricted',
   disabled: 'brands-showcase--disabled',
   forced: 'brands-showcase--forced-brand',
+  otherDocs: 'brands-other-showcase--docs',
+  standaloneDocs: 'guides-standalone--docs',
 } as const;
 
 const brandStyles = {
@@ -101,6 +105,13 @@ const navigateInSidebar = async (page: Page, storyId: string) => {
   await expect(page).toHaveURL(new RegExp(`path=/(?:story|docs)/${storyId}`));
 };
 
+const navigateDirectly = async (page: Page, storyId: string, viewMode: 'story' | 'docs' = 'docs') => {
+  const url = new URL(page.url());
+  url.searchParams.set('path', `/${viewMode}/${storyId}`);
+  await page.goto(url.toString());
+  await expect(page).toHaveURL(new RegExp(`path=/${viewMode}/${storyId}`));
+};
+
 const expectUrlBrand = async (page: Page, brand: string) => {
   await expect.poll(() => new URL(page.url()).searchParams.get('globals')).toContain(`brand:${brand}`);
 };
@@ -156,6 +167,31 @@ const expectBrand = async (page: Page, brand: keyof typeof brandStyles) => {
   await expect.poll(async () => (await readState()).computed).toEqual(expected.computed);
 };
 
+const expectDocsBrand = async (page: Page, brand: keyof typeof brandStyles, minimumStories: number) => {
+  const frame = preview(page);
+  const html = frame.locator('html');
+  const showcases = frame.getByTestId('brand-showcase');
+  await expect
+    .poll(
+      async () => {
+        if ((await showcases.count()) < minimumStories || (await html.getAttribute('data-brand')) !== brand) {
+          return false;
+        }
+        return showcases.evaluateAll(
+          (elements, expected) =>
+            elements.every(
+              (element) =>
+                getComputedStyle(element).backgroundColor === expected.backgroundColor &&
+                getComputedStyle(element).color === expected.color,
+            ),
+          brandStyles[brand].computed,
+        );
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+};
+
 const selectBrand = async (page: Page, brand: 'Orbit' | 'Canopy' | 'Harbor') => {
   await toolbar(page).click();
   await brandOption(page, brand).click();
@@ -163,6 +199,7 @@ const selectBrand = async (page: Page, brand: 'Orbit' | 'Canopy' | 'Harbor') => 
 };
 
 test(`packed addon integrates with Storybook ${process.env.STORYBOOK_VERSION ?? 'unknown'}`, async ({ page }) => {
+  test.setTimeout(60_000);
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
@@ -245,12 +282,51 @@ test(`packed addon integrates with Storybook ${process.env.STORYBOOK_VERSION ?? 
   await expect(toolbar(page)).toHaveAccessibleName('Brand Orbit');
 
   await navigateInSidebar(page, storyIds.docs);
-  await expect(toolbar(page)).toHaveCount(0);
+  await expect(toolbar(page)).toBeEnabled();
+  await expect(toolbar(page)).toHaveAccessibleName('Brand Orbit');
   await expect(preview(page).getByRole('heading', { name: 'Showcase' })).toBeVisible();
-  const docsHtml = preview(page).locator('html');
-  await expect(docsHtml).toHaveAttribute('data-brand', 'fixture-baseline');
-  await expect(docsHtml).toHaveAttribute('class', 'fixture-baseline fixture-shell');
-  await expect(docsHtml).toHaveAttribute('style', '--fixture-existing: retained; color-scheme: light;');
+  await expectDocsBrand(page, 'orbit', 5);
+  await toolbar(page).click();
+  await expect(brandMenu(page).getByRole('button')).toHaveText(['Orbit', 'Canopy']);
+  await brandOption(page, 'Canopy').click();
+  await expectDocsBrand(page, 'canopy', 5);
+  await expectUrlBrand(page, 'canopy');
 
-  expect(pageErrors).toEqual([]);
+  await navigateInSidebar(page, storyIds.attachedDocs);
+  await expect(toolbar(page)).toHaveAccessibleName('Brand Canopy');
+  await expect(preview(page).getByRole('heading', { name: 'Attached brand guide' })).toBeVisible();
+  await expectDocsBrand(page, 'canopy', 4);
+
+  await navigateDirectly(page, storyIds.otherDocs);
+  await expect(toolbar(page)).toHaveAccessibleName('Brand fallback Harbor');
+  await expectDocsBrand(page, 'harbor', 1);
+  await expectUrlBrand(page, 'canopy');
+
+  await navigateDirectly(page, storyIds.disabledDocs);
+  await expect(toolbar(page)).toBeDisabled();
+  await toolbar(page).hover();
+  await expect(page.getByText('Brand switching is disabled for this Docs page.')).toBeVisible();
+  const disabledDocsHtml = preview(page).locator('html');
+  await expect(disabledDocsHtml).toHaveAttribute('data-brand', 'fixture-baseline');
+  await expect(disabledDocsHtml).toHaveAttribute('class', 'fixture-baseline fixture-shell');
+  await expect(disabledDocsHtml).toHaveAttribute('style', '--fixture-existing: retained; color-scheme: light;');
+
+  await navigateDirectly(page, storyIds.attachedDocs);
+  await expect(toolbar(page)).toHaveAccessibleName('Brand Canopy');
+  await expectDocsBrand(page, 'canopy', 4);
+
+  await navigateInSidebar(page, storyIds.restricted);
+  await expectBrand(page, 'orbit');
+  await expect(toolbar(page)).toHaveAccessibleName('Brand fallback Orbit');
+  await expectUrlBrand(page, 'canopy');
+
+  await navigateInSidebar(page, storyIds.standaloneDocs);
+  await expect(preview(page).getByRole('heading', { name: 'Standalone guide' })).toBeVisible();
+  await expect(toolbar(page)).toHaveCount(0);
+  const standaloneHtml = preview(page).locator('html');
+  await expect(standaloneHtml).toHaveAttribute('data-brand', 'fixture-baseline');
+  await expect(standaloneHtml).toHaveAttribute('class', 'fixture-baseline fixture-shell');
+  await expect(standaloneHtml).toHaveAttribute('style', '--fixture-existing: retained; color-scheme: light;');
+
+  expect(pageErrors.filter((message) => message !== 'The user aborted a request.')).toEqual([]);
 });

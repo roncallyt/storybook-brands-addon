@@ -4,10 +4,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const managerApi = vi.hoisted(() => ({
   add: vi.fn(),
+  emit: vi.fn(),
+  listeners: {} as Record<string, (...args: unknown[]) => void>,
   register: vi.fn((_id: string, register: () => void) => register()),
-  useChannel: vi.fn(),
+  useChannel: vi.fn((listeners: Record<string, (...args: unknown[]) => void>) => {
+    managerApi.listeners = listeners;
+    return managerApi.emit;
+  }),
   useGlobals: vi.fn(),
   useParameter: vi.fn(),
+  useStorybookApi: vi.fn(),
+  useStorybookState: vi.fn(),
 }));
 
 vi.mock('@storybook/icons', () => ({ PaintBrushIcon: 'paint-brush-icon' }));
@@ -104,10 +111,19 @@ vi.mock('storybook/manager-api', () => ({
   useChannel: managerApi.useChannel,
   useGlobals: managerApi.useGlobals,
   useParameter: managerApi.useParameter,
+  useStorybookApi: managerApi.useStorybookApi,
+  useStorybookState: managerApi.useStorybookState,
 }));
 
-import { BRAND_GLOBAL, TOOL_ID } from './constants';
-import { BrandSelect, BrandSelectorPresentation } from './manager';
+import {
+  BRAND_GLOBAL,
+  DOCS_CONTEXT_EVENT,
+  DOCS_CONTEXT_REQUEST_EVENT,
+  DOCS_PARAMETERS_EVENT,
+  REGISTER_EVENT,
+  TOOL_ID,
+} from './constants';
+import { BrandSelect, BrandSelector, BrandSelectorPresentation, supportsBrandDocsEntry } from './manager';
 import type { BrandsRegistration } from './protocol';
 
 interface SelectProps {
@@ -137,6 +153,7 @@ interface RenderOptions {
   storyGlobals?: Record<string, unknown>;
   updateGlobals?: (globals: Record<string, unknown>) => void;
   userGlobals?: Record<string, unknown>;
+  viewMode?: 'story' | 'docs';
 }
 
 const renderPresentation = ({
@@ -145,6 +162,7 @@ const renderPresentation = ({
   storyGlobals = {},
   updateGlobals = vi.fn(),
   userGlobals = {},
+  viewMode = 'story',
 }: RenderOptions = {}): SelectProps =>
   (
     BrandSelectorPresentation({
@@ -153,11 +171,12 @@ const renderPresentation = ({
       storyGlobals,
       updateGlobals,
       userGlobals,
+      viewMode,
     }) as ReactElement<SelectProps>
   ).props;
 
 describe('brand selector manager registration', () => {
-  it('registers a Canvas-only toolbar tool', () => {
+  it('registers a toolbar tool for Canvas and Docs', () => {
     expect(managerApi.register).toHaveBeenCalledOnce();
     expect(managerApi.add).toHaveBeenCalledOnce();
 
@@ -168,7 +187,15 @@ describe('brand selector manager registration', () => {
     expect(id).toBe(TOOL_ID);
     expect(tool.type).toBe('tool');
     expect(tool.match({ viewMode: 'story' })).toBe(true);
-    expect(tool.match({ viewMode: 'docs' })).toBe(false);
+    expect(tool.match({ viewMode: 'docs' })).toBe(true);
+  });
+
+  it('supports only component-owned Docs entries', () => {
+    expect(supportsBrandDocsEntry({ type: 'docs', tags: ['autodocs'] })).toBe(true);
+    expect(supportsBrandDocsEntry({ type: 'docs', tags: ['attached-mdx'] })).toBe(true);
+    expect(supportsBrandDocsEntry({ type: 'docs', tags: ['unattached-mdx'] })).toBe(false);
+    expect(supportsBrandDocsEntry({ type: 'story', tags: ['autodocs'] })).toBe(false);
+    expect(supportsBrandDocsEntry(undefined)).toBe(false);
   });
 });
 
@@ -284,6 +311,136 @@ describe('BrandSelectorPresentation', () => {
     expect(props.disabled).toBe(true);
     expect(props.tooltip).toContain('unavailable');
     expect(renderPresentation().disabled).toBe(false);
+  });
+
+  it('uses owning Docs controls and ignores story controls and forced globals', () => {
+    const updateGlobals = vi.fn();
+    const props = renderPresentation({
+      parameters: {
+        allowed: ['four'],
+        disabled: true,
+        docs: { allowed: ['first.brand', 'project / default'], default: 'first.brand' },
+      },
+      storyGlobals: { [BRAND_GLOBAL]: 'four' },
+      updateGlobals,
+      userGlobals: {},
+      viewMode: 'docs',
+    });
+
+    expect(props.children).toBe('First Brand');
+    expect(props.options.map(({ value }) => value)).toEqual(['first.brand', 'project / default']);
+    expect(props.disabled).toBe(false);
+    props.onSelect?.('project / default');
+    expect(updateGlobals).toHaveBeenCalledWith({ [BRAND_GLOBAL]: 'project / default' });
+  });
+
+  it('shows Docs-specific disabled and fallback states', () => {
+    const disabled = renderPresentation({ parameters: { docs: { disabled: true } }, viewMode: 'docs' });
+    expect(disabled.disabled).toBe(true);
+    expect(disabled.tooltip).toContain('Docs page');
+
+    const fallback = renderPresentation({
+      parameters: { docs: { allowed: ['first.brand'] } },
+      userGlobals: { [BRAND_GLOBAL]: 'four' },
+      viewMode: 'docs',
+    });
+    expect(fallback.children).toBe('First Brand');
+    expect(fallback.disabled).toBe(false);
+    expect(fallback.tooltip).toContain('Docs page');
+  });
+});
+
+describe('BrandSelector Docs integration', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    managerApi.emit.mockReset();
+    managerApi.listeners = {};
+    managerApi.useParameter.mockReturnValue({ docs: { default: 'first.brand' } });
+    managerApi.useGlobals.mockReturnValue([{}, vi.fn(), {}, {}]);
+    managerApi.useStorybookState.mockReturnValue({ storyId: 'brands-showcase--docs', viewMode: 'docs' });
+    managerApi.useStorybookApi.mockReturnValue({
+      getData: () => ({ parent: 'brands-showcase', tags: ['autodocs'], type: 'docs' }),
+    });
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it('publishes the owning Docs state after registration and on request', () => {
+    act(() => root.render(<BrandSelector />));
+    act(() => managerApi.listeners[REGISTER_EVENT]?.(registration));
+    act(() =>
+      managerApi.listeners[DOCS_PARAMETERS_EVENT]?.({
+        pageId: 'brands-showcase--docs',
+        componentId: 'embedded-component',
+        parameters: { docs: { default: 'four' } },
+      }),
+    );
+    expect(container.querySelector('button')?.getAttribute('aria-label')).toBe('Brand Project Default');
+
+    act(() =>
+      managerApi.listeners[DOCS_PARAMETERS_EVENT]?.({
+        pageId: 'brands-showcase--docs',
+        componentId: 'brands-showcase',
+        parameters: { docs: { default: 'first.brand' } },
+      }),
+    );
+
+    expect(container.querySelector('button')?.getAttribute('aria-label')).toBe('Brand First Brand');
+    expect(managerApi.emit).toHaveBeenCalledWith(DOCS_CONTEXT_EVENT, {
+      pageId: 'brands-showcase--docs',
+      ownerComponentId: 'brands-showcase',
+      supported: true,
+      disabled: false,
+      brandId: 'first.brand',
+    });
+
+    const publishedContextCount = managerApi.emit.mock.calls.filter(([event]) => event === DOCS_CONTEXT_EVENT).length;
+    act(() =>
+      managerApi.listeners[DOCS_PARAMETERS_EVENT]?.({
+        pageId: 'brands-showcase--docs',
+        componentId: 'brands-showcase',
+        parameters: { docs: { default: 'first.brand' } },
+      }),
+    );
+    expect(managerApi.emit.mock.calls.filter(([event]) => event === DOCS_CONTEXT_EVENT)).toHaveLength(
+      publishedContextCount,
+    );
+
+    managerApi.emit.mockClear();
+    act(() => managerApi.listeners[DOCS_CONTEXT_REQUEST_EVENT]?.());
+    expect(managerApi.emit).toHaveBeenCalledWith(DOCS_CONTEXT_EVENT, {
+      pageId: 'brands-showcase--docs',
+      ownerComponentId: 'brands-showcase',
+      supported: true,
+      disabled: false,
+      brandId: 'first.brand',
+    });
+  });
+
+  it('renders nothing and publishes an inactive context for unattached MDX', () => {
+    managerApi.useStorybookApi.mockReturnValue({
+      getData: () => ({ tags: ['unattached-mdx'], type: 'docs' }),
+    });
+
+    act(() => root.render(<BrandSelector />));
+
+    expect(container.innerHTML).toBe('');
+    expect(managerApi.emit).toHaveBeenCalledWith(DOCS_CONTEXT_EVENT, {
+      pageId: 'brands-showcase--docs',
+      ownerComponentId: undefined,
+      supported: false,
+      disabled: false,
+      brandId: undefined,
+    });
   });
 });
 

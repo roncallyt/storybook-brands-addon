@@ -179,6 +179,13 @@ interface BrandsParameters {
   allowed?: string[];
   default?: string;
   disabled?: boolean;
+  docs?: BrandsDocsParameters;
+}
+
+interface BrandsDocsParameters {
+  allowed?: string[];
+  default?: string;
+  disabled?: boolean;
 }
 ```
 
@@ -209,7 +216,7 @@ The advanced `withBrands` API also accepts:
 Every config also accepts:
 
 - `defaultBrand`: the ID to use when there is no usable user or story selection. It must identify a configured brand.
-- `target`: a CSS selector for the element that receives the brand. It defaults to `html` and is resolved in the Canvas preview document.
+- `target`: a CSS selector for the element that receives the brand. It defaults to `html` and is resolved in the active preview document.
 
 Calling any decorator validates and snapshots the complete project configuration synchronously. Invalid project configuration throws a `TypeError` immediately, including the failing field path. Later mutations to the supplied object do not change the registered catalog.
 
@@ -277,11 +284,33 @@ An unknown or malformed global warns and falls back. If a saved user brand is va
 
 Selecting a brand updates Storybook's `brand` global, so Storybook carries it through story navigation and its globals URL state. Story-level globals remain story metadata and do not replace the user's saved selection.
 
-## Canvas and DOM behavior
+## Component Docs
 
-The toolbar and brand application operate only for individual Canvas stories. The toolbar displays the effective brand beside its icon and opens the same dropdown for catalogs of any size. Docs mode is left untouched. The target is queried from the Canvas element's owner document, which keeps the manager document isolated from preview changes.
+Set `parameters.brands.docs` on component metadata to control one brand across an Autodocs or attached MDX page:
 
-On application, the addon sets configured attributes, adds configured class tokens, and writes configured custom properties as inline styles. Before doing so it snapshots the target's relevant attributes plus its complete `class` and `style` attributes. It restores those exact original values—including whether the attributes existed at all—before switching brands, when disabling the addon for a story, when leaving Canvas, and when the decorator unmounts. Unrelated attributes remain untouched.
+```ts
+const meta = {
+  component: ProductCard,
+  parameters: {
+    brands: {
+      docs: {
+        allowed: ['alpha', 'beta'],
+        default: 'beta',
+      },
+    },
+  },
+} satisfies Meta<typeof ProductCard>;
+```
+
+Docs first uses a valid saved or URL brand allowed by `docs.allowed`, followed by `docs.default`, the allowed project default, and the first allowed project brand. Embedded stories' own brand restrictions, defaults, disabling, and forced globals are ignored so that the whole page stays coherent. A disabled Docs configuration restores the preview DOM and disables the selector.
+
+The selector and brand application support Autodocs and MDX attached with `<Meta of={Stories}>`. Standalone MDX without an owning component is left unchanged, even when it embeds story canvases.
+
+## Preview and DOM behavior
+
+The toolbar displays the effective brand beside its icon and opens the same dropdown for catalogs of any size. The target is queried from the Canvas or Docs element's owner document, which keeps the manager document isolated from preview changes.
+
+On application, the addon sets configured attributes, adds configured class tokens, and writes configured custom properties as inline styles. Before doing so it snapshots the target's relevant attributes plus its complete `class` and `style` attributes. It restores those exact original values—including whether the attributes existed at all—before switching brands, when disabling the addon, when leaving a supported view, and when the final decorator owner unmounts. Unrelated attributes remain untouched.
 
 An invalid selector, a selector with no match, or a matched element that cannot accept classes and inline styles produces a non-fatal console warning and no brand mutation.
 

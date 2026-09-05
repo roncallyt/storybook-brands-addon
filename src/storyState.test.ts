@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { BRAND_GLOBAL } from './constants';
-import { resolveStoryBrandState, type BrandCatalog, type BrandReference } from './storyState';
+import { resolveDocsBrandState, resolveStoryBrandState, type BrandCatalog, type BrandReference } from './storyState';
 
 const brand = (id: string, title: string): BrandReference => ({ id, title });
 const catalog: BrandCatalog<BrandReference> = {
@@ -132,5 +132,76 @@ describe('per-story brand state', () => {
     expect(state.brand?.id).toBe('project');
     expect(state.mismatch).toEqual({ source: 'user', value: 42, reason: 'invalid' });
     expect(warn).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('component Docs brand state', () => {
+  it('resolves user, Docs default, project default, and first allowed brand precedence', () => {
+    expect(resolveDocsBrandState(catalog, undefined, { [BRAND_GLOBAL]: 'selected' }).brand?.id).toBe('selected');
+    expect(resolveDocsBrandState(catalog, { docs: { default: 'first' } }, {}).brand?.id).toBe('first');
+    expect(resolveDocsBrandState(catalog, undefined, {}).brand?.id).toBe('project');
+    expect(resolveDocsBrandState({ ...catalog, defaultBrand: undefined }, undefined, {}).brand?.id).toBe('first');
+  });
+
+  it('uses only nested Docs controls and preserves a disallowed saved selection', () => {
+    const userGlobals = { [BRAND_GLOBAL]: 'selected' };
+    const state = resolveDocsBrandState(
+      catalog,
+      {
+        allowed: ['selected'],
+        default: 'selected',
+        disabled: true,
+        docs: { allowed: ['first', 'forced'], default: 'forced' },
+      },
+      userGlobals,
+    );
+
+    expect(state.allowedBrands.map(({ id }) => id)).toEqual(['first', 'forced']);
+    expect(state.brand?.id).toBe('forced');
+    expect(state.locked).toBe(false);
+    expect(state.mismatch).toEqual({ source: 'user', value: 'selected', reason: 'disallowed' });
+    expect(userGlobals[BRAND_GLOBAL]).toBe('selected');
+  });
+
+  it('disables Docs before resolving globals', () => {
+    const warn = vi.fn();
+    const state = resolveDocsBrandState(
+      catalog,
+      { docs: { disabled: true, allowed: ['first'] } },
+      { [BRAND_GLOBAL]: 42 },
+      warn,
+    );
+
+    expect(state.brand).toBeUndefined();
+    expect(state.disabled).toBe(true);
+    expect(state.locked).toBe(false);
+    expect(state.allowedBrands.map(({ id }) => id)).toEqual(['first']);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('warns with Docs paths and falls back for malformed metadata', () => {
+    const warn = vi.fn();
+    const state = resolveDocsBrandState(
+      catalog,
+      { docs: { allowed: ['missing'], default: 'missing', disabled: 'yes' } },
+      {},
+      warn,
+    );
+
+    expect(state.brand?.id).toBe('project');
+    expect(warn).toHaveBeenCalledTimes(4);
+    expect(
+      warn.mock.calls.every(([message]) => /^\[storybook-brands-addon\] parameters\.brands\.docs/.test(message)),
+    ).toBe(true);
+  });
+
+  it('warns about a malformed outer or nested parameter object', () => {
+    const outerWarn = vi.fn();
+    const nestedWarn = vi.fn();
+
+    expect(resolveDocsBrandState(catalog, null, {}, outerWarn).brand?.id).toBe('project');
+    expect(resolveDocsBrandState(catalog, { docs: false }, {}, nestedWarn).brand?.id).toBe('project');
+    expect(outerWarn).toHaveBeenCalledWith(expect.stringContaining('parameters.brands:'));
+    expect(nestedWarn).toHaveBeenCalledWith(expect.stringContaining('parameters.brands.docs:'));
   });
 });

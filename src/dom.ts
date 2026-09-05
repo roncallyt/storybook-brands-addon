@@ -14,10 +14,18 @@ interface ElementState {
 
 interface ActiveApplication {
   readonly state: ElementState;
-  readonly token: object;
+  readonly owners: Map<object, BrandApplication>;
+  activeToken: object | undefined;
+}
+
+interface BrandApplication {
+  readonly brand: NormalizedBrand;
+  readonly config: NormalizedBrandsConfig;
+  readonly order: number;
 }
 
 const activeApplications = new WeakMap<Element, ActiveApplication>();
+let applicationOrder = 0;
 
 const snapshotAttribute = (element: Element, name: string): AttributeState => ({
   existed: element.hasAttribute(name),
@@ -55,6 +63,28 @@ const warn = (message: string): void => {
   console.warn(`[${ADDON_ID}] ${message}`);
 };
 
+const applyToTarget = (
+  target: Element & { style: CSSStyleDeclaration },
+  state: ElementState,
+  config: NormalizedBrandsConfig,
+  brand: NormalizedBrand,
+): boolean => {
+  restoreElement(target, state);
+  try {
+    Object.entries(brand.attributes).forEach(([name, value]) => target.setAttribute(name, value));
+    brand.classes.forEach((className) => target.classList.add(className));
+    Object.entries(brand.cssVariables).forEach(([name, value]) => target.style.setProperty(name, value));
+    return true;
+  } catch {
+    restoreElement(target, state);
+    warn(`could not apply brand ${JSON.stringify(brand.id)} to target ${JSON.stringify(config.target)}`);
+    return false;
+  }
+};
+
+const latestOwner = (application: ActiveApplication): [object, BrandApplication] | undefined =>
+  [...application.owners.entries()].sort(([, left], [, right]) => right.order - left.order)[0];
+
 export const applyBrand = (
   canvasElement: Element,
   config: NormalizedBrandsConfig,
@@ -79,33 +109,49 @@ export const applyBrand = (
     return undefined;
   }
 
-  const previous = activeApplications.get(target);
-  if (previous !== undefined) {
-    restoreElement(target, previous.state);
-    activeApplications.delete(target);
-  }
-
-  const state = snapshotElement(target, config.attributeNames);
+  const application =
+    activeApplications.get(target) ??
+    ({
+      state: snapshotElement(target, config.attributeNames),
+      owners: new Map(),
+      activeToken: undefined,
+    } satisfies ActiveApplication);
   const token = {};
-  activeApplications.set(target, { state, token });
+  application.owners.set(token, { brand, config, order: applicationOrder++ });
+  activeApplications.set(target, application);
 
-  try {
-    Object.entries(brand.attributes).forEach(([name, value]) => target.setAttribute(name, value));
-    brand.classes.forEach((className) => target.classList.add(className));
-    Object.entries(brand.cssVariables).forEach(([name, value]) => target.style.setProperty(name, value));
-  } catch {
-    restoreElement(target, state);
-    activeApplications.delete(target);
-    warn(`could not apply brand ${JSON.stringify(brand.id)} to target ${JSON.stringify(config.target)}`);
+  if (!applyToTarget(target, application.state, config, brand)) {
+    application.owners.delete(token);
+    const previous = latestOwner(application);
+    if (previous === undefined) {
+      activeApplications.delete(target);
+    } else {
+      application.activeToken = previous[0];
+      applyToTarget(target, application.state, previous[1].config, previous[1].brand);
+    }
     return undefined;
   }
+  application.activeToken = token;
 
   return () => {
     const active = activeApplications.get(target);
-    if (active?.token !== token) {
+    if (active !== application || !active.owners.has(token)) {
       return;
     }
-    restoreElement(target, state);
-    activeApplications.delete(target);
+    const wasActive = active.activeToken === token;
+    active.owners.delete(token);
+    if (active.owners.size === 0) {
+      restoreElement(target, active.state);
+      activeApplications.delete(target);
+      return;
+    }
+    if (!wasActive) {
+      return;
+    }
+    const next = latestOwner(active);
+    if (next !== undefined) {
+      active.activeToken = next[0];
+      applyToTarget(target, active.state, next[1].config, next[1].brand);
+    }
   };
 };

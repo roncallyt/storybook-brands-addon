@@ -7,6 +7,12 @@ const meta = {
   component: BrandShowcase,
   tags: ['autodocs'],
   parameters: {
+    brands: {
+      docs: {
+        allowed: ['orbit', 'canopy'],
+        default: 'canopy',
+      },
+    },
     layout: 'fullscreen',
   },
 } satisfies Meta<typeof BrandShowcase>;

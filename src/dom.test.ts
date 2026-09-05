@@ -66,6 +66,38 @@ describe('brand DOM state', () => {
     expect(target.outerHTML).toBe('<main id="target"></main>');
   });
 
+  it('keeps a shared target branded until its final owner releases it', () => {
+    const target = document.querySelector('#target') as HTMLElement;
+    target.className = 'original';
+    const config = makeConfig();
+
+    const releaseFirst = applyBrand(target, config, config.brands[0]!);
+    const releaseSecond = applyBrand(target, config, config.brands[0]!);
+
+    releaseFirst?.();
+    expect(target.className).toBe('original brand-alpha light');
+    expect(target.getAttribute('data-brand')).toBe('alpha');
+
+    releaseSecond?.();
+    expect(target.outerHTML).toBe('<main id="target" class="original"></main>');
+  });
+
+  it('reapplies the latest remaining owner after out-of-order cleanup', () => {
+    const target = document.querySelector('#target') as HTMLElement;
+    const config = makeConfig();
+
+    const releaseAlpha = applyBrand(target, config, config.brands[0]!);
+    const releaseBeta = applyBrand(target, config, config.brands[1]!);
+    expect(target.getAttribute('data-brand')).toBe('beta');
+
+    releaseBeta?.();
+    expect(target.getAttribute('data-brand')).toBe('alpha');
+    expect(target.className).toBe('brand-alpha light');
+
+    releaseAlpha?.();
+    expect(target.outerHTML).toBe('<main id="target"></main>');
+  });
+
   it('restores exact original attribute, class, and style states', () => {
     const target = document.querySelector('#target') as HTMLElement;
     target.setAttribute('data-brand', 'original');

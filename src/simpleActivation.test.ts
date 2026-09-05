@@ -14,6 +14,7 @@ const hook = vi.hoisted(() => ({
 vi.mock('storybook/preview-api', () => ({
   useChannel: hook.useChannel,
   useEffect: hook.useEffect,
+  useState: () => [undefined, vi.fn()],
 }));
 
 import type { StoryContext } from 'storybook/internal/types';

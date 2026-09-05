@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const hook = vi.hoisted(() => ({
   cleanup: undefined as (() => void) | undefined,
+  docsContext: undefined as import('./protocol').DocsBrandContext | undefined,
   emit: vi.fn(),
   listeners: {} as Record<string, (...args: unknown[]) => void>,
   useEffect: vi.fn<(create: () => (() => void) | undefined) => void>(),
@@ -9,16 +10,35 @@ const hook = vi.hoisted(() => ({
     hook.listeners = listeners;
     return hook.emit;
   }),
+  useState: vi.fn(() => [
+    hook.docsContext,
+    (
+      value:
+        | import('./protocol').DocsBrandContext
+        | ((
+            current: import('./protocol').DocsBrandContext | undefined,
+          ) => import('./protocol').DocsBrandContext | undefined),
+    ) => (hook.docsContext = typeof value === 'function' ? value(hook.docsContext) : value),
+  ]),
 }));
 
 vi.mock('storybook/preview-api', () => ({
   useChannel: hook.useChannel,
   useEffect: hook.useEffect,
+  useState: hook.useState,
 }));
 
 import type { StoryContext } from 'storybook/internal/types';
 
-import { BRAND_GLOBAL, BRANDS_PARAMETER, REGISTER_EVENT, REQUEST_EVENT } from './constants';
+import {
+  BRAND_GLOBAL,
+  BRANDS_PARAMETER,
+  DOCS_CONTEXT_EVENT,
+  DOCS_CONTEXT_REQUEST_EVENT,
+  DOCS_PARAMETERS_EVENT,
+  REGISTER_EVENT,
+  REQUEST_EVENT,
+} from './constants';
 import type { BrandsConfig } from './types';
 import { withBrands } from './withBrands';
 
@@ -59,6 +79,7 @@ const render = (
     (() => 'story result') as never,
     {
       canvasElement: document.body,
+      componentId: 'brands-showcase',
       globals: { brand: globalBrand },
       parameters: { [BRANDS_PARAMETER]: options.parameters },
       storyGlobals: options.storyGlobals ?? {},
@@ -72,6 +93,7 @@ describe('withBrands', () => {
     vi.restoreAllMocks();
     hook.cleanup?.();
     hook.cleanup = undefined;
+    hook.docsContext = undefined;
     hook.emit.mockReset();
     hook.listeners = {};
     hook.useChannel.mockClear();
@@ -81,6 +103,7 @@ describe('withBrands', () => {
       hook.cleanup = create();
     });
     document.body.innerHTML = '<main id="target" class="original"></main>';
+    window.history.replaceState({}, '', '/');
   });
 
   it('returns the story result and applies the selected global in Canvas', () => {
@@ -273,5 +296,60 @@ describe('withBrands', () => {
       }),
     ).not.toThrow();
     expect(warning).not.toHaveBeenCalled();
+  });
+
+  it('applies only a current, supported manager-owned Docs context', () => {
+    const decorator = withBrands(config());
+    const storyParameters = { disabled: true, docs: { allowed: ['alpha'] } };
+    window.history.replaceState({}, '', '/iframe.html?id=brands-showcase--docs&viewMode=docs');
+
+    render(decorator, 'docs', 'alpha', {
+      parameters: storyParameters,
+      storyGlobals: { [BRAND_GLOBAL]: 'alpha' },
+    });
+    expect(hook.emit).toHaveBeenCalledWith(DOCS_CONTEXT_REQUEST_EVENT);
+    expect(document.querySelector('#target')?.getAttribute('data-brand')).toBeNull();
+
+    const docsContext = {
+      pageId: 'brands-showcase--docs',
+      ownerComponentId: 'brands-showcase',
+      supported: true,
+      disabled: false,
+      brandId: 'beta',
+    } satisfies import('./protocol').DocsBrandContext;
+    hook.listeners[DOCS_CONTEXT_EVENT]?.(docsContext);
+    hook.listeners[DOCS_CONTEXT_EVENT]?.({ ...docsContext });
+    expect(hook.docsContext).toBe(docsContext);
+
+    render(decorator, 'docs', 'alpha', {
+      parameters: storyParameters,
+      storyGlobals: { [BRAND_GLOBAL]: 'alpha' },
+    });
+    expect(hook.emit).toHaveBeenCalledWith(DOCS_PARAMETERS_EVENT, {
+      pageId: 'brands-showcase--docs',
+      componentId: 'brands-showcase',
+      parameters: storyParameters,
+    });
+    expect(document.querySelector('#target')?.getAttribute('data-brand')).toBe('beta');
+
+    hook.listeners[DOCS_CONTEXT_EVENT]?.({
+      pageId: 'another-page--docs',
+      ownerComponentId: 'brands-showcase',
+      supported: true,
+      disabled: false,
+      brandId: 'alpha',
+    });
+    render(decorator, 'docs', 'alpha');
+    expect(document.querySelector('#target')?.getAttribute('data-brand')).toBeNull();
+
+    hook.listeners[DOCS_CONTEXT_EVENT]?.({
+      pageId: 'brands-showcase--docs',
+      ownerComponentId: undefined,
+      supported: false,
+      disabled: false,
+      brandId: undefined,
+    });
+    render(decorator, 'docs', 'alpha');
+    expect(document.querySelector('#target')?.outerHTML).toBe('<main id="target" class="original"></main>');
   });
 });

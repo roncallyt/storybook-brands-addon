@@ -1,17 +1,38 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { PaintBrushIcon } from '@storybook/icons';
 import { IconButton, TooltipLinkList, WithTooltip } from 'storybook/internal/components';
-import { addons, types, useChannel, useGlobals, useParameter } from 'storybook/manager-api';
+import {
+  addons,
+  types,
+  useChannel,
+  useGlobals,
+  useParameter,
+  useStorybookApi,
+  useStorybookState,
+} from 'storybook/manager-api';
 
-import { ADDON_ID, BRAND_GLOBAL, BRANDS_PARAMETER, REGISTER_EVENT, REQUEST_EVENT, TOOL_ID } from './constants';
-import type { BrandsRegistration } from './protocol';
-import { resolveStoryBrandState } from './storyState';
+import {
+  ADDON_ID,
+  BRAND_GLOBAL,
+  BRANDS_PARAMETER,
+  DOCS_CONTEXT_EVENT,
+  DOCS_CONTEXT_REQUEST_EVENT,
+  DOCS_PARAMETERS_EVENT,
+  REGISTER_EVENT,
+  REQUEST_EVENT,
+  TOOL_ID,
+} from './constants';
+import type { BrandsRegistration, DocsBrandContext, DocsParametersReport } from './protocol';
+import { resolveDocsBrandState, resolveStoryBrandState } from './storyState';
 
 const MISSING_CONFIGURATION_TOOLTIP =
   'Configure brands with withBrandsByDataAttribute() or another brand decorator in .storybook/preview.ts to enable brand selection.';
 const STORY_OVERRIDE_TOOLTIP = 'Brand selection is set by this story and cannot be changed.';
 const DISABLED_TOOLTIP = 'Brand switching is disabled for this story.';
+const DOCS_DISABLED_TOOLTIP = 'Brand switching is disabled for this Docs page.';
 const ignoreWarning = (): void => undefined;
+
+type SupportedViewMode = 'story' | 'docs';
 
 interface BrandSelectorPresentationProps {
   registration: BrandsRegistration | undefined;
@@ -19,6 +40,7 @@ interface BrandSelectorPresentationProps {
   storyGlobals: Record<string, unknown>;
   userGlobals: Record<string, unknown>;
   updateGlobals: (globals: Record<string, unknown>) => void;
+  viewMode?: SupportedViewMode;
 }
 
 interface BrandSelectProps {
@@ -166,6 +188,7 @@ export const BrandSelectorPresentation = ({
   storyGlobals,
   userGlobals,
   updateGlobals,
+  viewMode = 'story',
 }: BrandSelectorPresentationProps): React.JSX.Element => {
   if (registration === undefined) {
     return (
@@ -181,18 +204,22 @@ export const BrandSelectorPresentation = ({
     );
   }
 
-  const state = resolveStoryBrandState(registration, parameters, storyGlobals, userGlobals, ignoreWarning);
+  const state =
+    viewMode === 'docs'
+      ? resolveDocsBrandState(registration, parameters, userGlobals, ignoreWarning)
+      : resolveStoryBrandState(registration, parameters, storyGlobals, userGlobals, ignoreWarning);
   const options = state.allowedBrands.map(({ id, title }) => ({ value: id, title }));
 
   if (state.disabled) {
+    const disabledTooltip = viewMode === 'docs' ? DOCS_DISABLED_TOOLTIP : DISABLED_TOOLTIP;
     return (
       <BrandSelect
-        ariaDescription={DISABLED_TOOLTIP}
+        ariaDescription={disabledTooltip}
         ariaLabel="Brand switching disabled"
         disabled
         key="disabled"
         options={options}
-        tooltip={DISABLED_TOOLTIP}
+        tooltip={disabledTooltip}
       >
         Brands disabled
       </BrandSelect>
@@ -212,7 +239,7 @@ export const BrandSelectorPresentation = ({
       : `Story brand ${mismatchLabel} is unavailable; using ${effectiveBrand.title}. The selector is locked by this story.`
     : state.mismatch === undefined
       ? 'Change brand'
-      : `Saved brand ${mismatchLabel} is not available for this story; using ${effectiveBrand.title}.`;
+      : `Saved brand ${mismatchLabel} is not available for this ${viewMode === 'docs' ? 'Docs page' : 'story'}; using ${effectiveBrand.title}.`;
 
   return (
     <BrandSelect
@@ -239,26 +266,100 @@ export const BrandSelectorPresentation = ({
   );
 };
 
-export const BrandSelector = (): React.JSX.Element => {
+interface DocsEntryLike {
+  readonly parent?: string;
+  readonly tags?: readonly string[];
+  readonly type?: string;
+}
+
+export const supportsBrandDocsEntry = (entry: DocsEntryLike | undefined): boolean =>
+  entry?.type === 'docs' &&
+  (entry.tags?.includes('autodocs') === true || entry.tags?.includes('attached-mdx') === true);
+
+export const BrandSelector = (): React.JSX.Element | null => {
   const [registration, setRegistration] = useState<BrandsRegistration>();
+  const [docsParametersReport, setDocsParametersReport] = useState<DocsParametersReport>();
   const parameters = useParameter<unknown>(BRANDS_PARAMETER);
   const [, updateGlobals, storyGlobals, userGlobals] = useGlobals();
+  const api = useStorybookApi();
+  const { storyId, viewMode } = useStorybookState();
+  let docsSupported = false;
+  let ownerComponentId: string | undefined;
+  if (viewMode === 'docs' && storyId !== undefined) {
+    try {
+      const entry = api.getData(storyId);
+      docsSupported = supportsBrandDocsEntry(entry);
+      ownerComponentId = docsSupported ? entry.parent : undefined;
+    } catch {
+      docsSupported = false;
+    }
+  }
+  const docsParametersReady =
+    docsParametersReport?.pageId === storyId && docsParametersReport.componentId === ownerComponentId;
+  const docsParameters = docsParametersReady ? docsParametersReport.parameters : undefined;
+  const docsState =
+    docsSupported && docsParametersReady && registration !== undefined
+      ? resolveDocsBrandState(registration, docsParameters, userGlobals, ignoreWarning)
+      : undefined;
+  const docsContext: DocsBrandContext = {
+    pageId: storyId ?? '',
+    ownerComponentId,
+    supported: docsSupported,
+    disabled: docsState?.disabled ?? false,
+    brandId: docsState?.brand?.id,
+  };
+  const docsContextRef = useRef(docsContext);
+  docsContextRef.current = docsContext;
   const emit = useChannel(
     {
+      [DOCS_CONTEXT_REQUEST_EVENT]: () => emit(DOCS_CONTEXT_EVENT, docsContextRef.current),
+      [DOCS_PARAMETERS_EVENT]: (report: DocsParametersReport) => {
+        const current = docsContextRef.current;
+        if (current.supported && report.pageId === current.pageId && report.componentId === current.ownerComponentId) {
+          setDocsParametersReport((existingReport) =>
+            existingReport?.pageId === report.pageId && existingReport.componentId === report.componentId
+              ? existingReport
+              : report,
+          );
+        }
+      },
       [REGISTER_EVENT]: (nextRegistration: BrandsRegistration) => setRegistration(nextRegistration),
     },
     [],
   );
 
   useEffect(() => emit(REQUEST_EVENT), [emit]);
+  useEffect(() => {
+    if (viewMode === 'docs') {
+      emit(DOCS_CONTEXT_EVENT, docsContextRef.current);
+    }
+  }, [
+    docsContext.brandId,
+    docsContext.disabled,
+    docsContext.ownerComponentId,
+    docsContext.pageId,
+    docsContext.supported,
+    emit,
+    viewMode,
+  ]);
+  useEffect(() => {
+    if (docsSupported && docsParametersReady && registration !== undefined) {
+      resolveDocsBrandState(registration, docsParameters, userGlobals);
+    }
+  }, [docsParameters, docsParametersReady, docsSupported, registration, userGlobals]);
+
+  if (viewMode === 'docs' && !docsSupported) {
+    return null;
+  }
 
   return (
     <BrandSelectorPresentation
-      parameters={parameters}
+      parameters={viewMode === 'docs' ? docsParameters : parameters}
       registration={registration}
       storyGlobals={storyGlobals}
       updateGlobals={updateGlobals}
       userGlobals={userGlobals}
+      viewMode={viewMode === 'docs' ? 'docs' : 'story'}
     />
   );
 };
@@ -267,7 +368,7 @@ addons.register(ADDON_ID, () => {
   addons.add(TOOL_ID, {
     title: 'Brands',
     type: types.TOOL,
-    match: ({ viewMode }) => viewMode === 'story',
+    match: ({ viewMode }) => viewMode === 'story' || viewMode === 'docs',
     render: BrandSelector,
   });
 });
